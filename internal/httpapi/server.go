@@ -39,18 +39,25 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/health", s.health)
+	s.mux.HandleFunc("POST /api/backup/export", s.exportBackup)
 	s.mux.HandleFunc("GET /api/routers", s.listRouters)
 	s.mux.HandleFunc("GET /api/routers/active", s.activeRouter)
 	s.mux.HandleFunc("POST /api/routers/connect", s.connectRouter)
 	s.mux.HandleFunc("POST /api/routers/disconnect", s.disconnectRouter)
 	s.mux.HandleFunc("GET /api/hotspot/profiles", s.hotspotProfiles)
 	s.mux.HandleFunc("GET /api/hotspot/users", s.hotspotUsers)
+	s.mux.HandleFunc("GET /api/usermanager", s.savedUserManager)
+	s.mux.HandleFunc("POST /api/usermanager/sync", s.syncUserManager)
 	s.mux.HandleFunc("GET /api/packages", s.listPackages)
 	s.mux.HandleFunc("POST /api/packages", s.createPackage)
 	s.mux.HandleFunc("PUT /api/packages/{id}", s.updatePackage)
 	s.mux.HandleFunc("DELETE /api/packages/{id}", s.disablePackage)
 	s.mux.HandleFunc("GET /api/distributors", s.listDistributors)
 	s.mux.HandleFunc("POST /api/distributors", s.createDistributor)
+	s.mux.HandleFunc("GET /api/templates", s.listTemplates)
+	s.mux.HandleFunc("GET /api/template-versions/{id}", s.getTemplateVersion)
+	s.mux.HandleFunc("POST /api/templates", s.saveTemplate)
+	s.mux.HandleFunc("GET /api/templates/{id}", s.getTemplate)
 	s.mux.HandleFunc("PUT /api/distributors/{id}", s.updateDistributor)
 	s.mux.HandleFunc("GET /api/inventory", s.inventory)
 	s.mux.HandleFunc("POST /api/inventory/movements", s.inventoryMovement)
@@ -338,6 +345,11 @@ func randomID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(data[:]), nil
+}
+
+func nullIfEmpty(value string) any {
+	if value == "" { return nil }
+	return value
 }
 
 func boolInt(value bool) int {

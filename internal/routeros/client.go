@@ -12,6 +12,7 @@ import (
 
 	ros "github.com/Mhmdabbasi/routeros-api-Go"
 	rosresources "github.com/Mhmdabbasi/routeros-api-Go/resources"
+	"github.com/Mhmdabbasi/bt2-manager2/internal/usermanager"
 )
 
 var ErrNotConnected = errors.New("no active router connection")
@@ -282,6 +283,17 @@ func (m *Manager) CreateUser(ctx context.Context, name, password, profile string
 		return HotspotUser{}, errors.New("تم إنشاء المستخدم لكن استجابته لم تتضمن معرّفاً؛ يلزم التحقق قبل أي إجراء لاحق")
 	}
 	return HotspotUser{ID: id, Name: name, Profile: profile}, nil
+}
+
+func (m *Manager) UserManagerSnapshot(ctx context.Context) (usermanager.Snapshot, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.current == nil {
+		return usermanager.Snapshot{}, ErrNotConnected
+	}
+	readCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	return usermanager.ReadSnapshot(readCtx, m.current.api, m.current.info.Version)
 }
 
 func ParseMajorVersion(version string) (int, error) {

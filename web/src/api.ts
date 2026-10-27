@@ -56,6 +56,17 @@ export type ServicePackage = {
 export type Distributor = { id: string; name: string; contact: string; notes: string; active: boolean; created_at: string };
 export type ManagedVoucher = { id: string; batch_id: string; username: string; state: string; failure_reason: string; created_at: string; package: string; owner: string };
 export type InventoryData = { total: number; balances: { owner_id: string; owner_name: string; count: number }[]; events: { id: string; type: string; voucher_id: string; username: string; from: string; to: string; note: string; created_at: string }[] };
+export type CardTemplateField = { id: string; kind: 'text'|'field'; field: 'username'|'password'|'package'|'validity'|''; text: string; x: number; y: number; width: number; height: number; font_size: number; font_weight: string; align: 'right'|'center'|'left'; color: string };
+export type CardTemplateDocument = { width_mm: number; height_mm: number; background: string; fields: CardTemplateField[] };
+export type CardTemplate = { id: string; version_id: string; name: string; version: number; created_at: string; document?: CardTemplateDocument };
+export type UserManagerSnapshot = {
+  router?: RouterInfo;
+  major_version?: number;
+  synced_at?: string;
+  profiles: { source_id: string; name: string; properties: Record<string, string>; present?: boolean; last_seen_at?: string }[];
+  limitations: { source_id: string; name: string; properties: Record<string, string>; present?: boolean; last_seen_at?: string }[];
+  profile_limitations: { profile_source_id: string; profile_name?: string; limitation_source_id: string; limitation_name?: string; position: number; properties: Record<string, string>; present?: boolean; last_seen_at?: string }[];
+};
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -73,6 +84,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  exportBackup: async (password: string): Promise<Blob> => {
+    const response = await fetch('/api/backup/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(payload.error || `تعذر تصدير النسخة (${response.status})`);
+    }
+    return response.blob();
+  },
   health: () => request<{ status: string }>('/api/health'),
   routers: () => request<RouterRecord[]>('/api/routers'),
   activeRouter: () => request<{ connected: boolean; router: RouterInfo }>('/api/routers/active'),
@@ -86,9 +105,15 @@ export const api = {
   distributors: () => request<Distributor[]>('/api/distributors'),
   createDistributor: (body: { name: string; contact: string; notes: string }) => request<Distributor>('/api/distributors', { method: 'POST', body: JSON.stringify(body) }),
   inventory: () => request<InventoryData>('/api/inventory'),
+  userManager: () => request<UserManagerSnapshot>('/api/usermanager'),
+  templates: () => request<CardTemplate[]>('/api/templates'),
+  template: (id: string) => request<CardTemplate>(`/api/templates/${encodeURIComponent(id)}`),
+  templateVersion: (id: string) => request<CardTemplate>(`/api/template-versions/${encodeURIComponent(id)}`),
+  saveTemplate: (body: { id?: string; name: string; document: CardTemplateDocument }) => request<CardTemplate>('/api/templates', { method: 'POST', body: JSON.stringify(body) }),
+  syncUserManager: () => request<UserManagerSnapshot>('/api/usermanager/sync', { method: 'POST', body: '{}' }),
   vouchers: (offset = 0, limit = 100) => request<{ items: ManagedVoucher[]; total: number; limit: number; offset: number }>(`/api/vouchers?offset=${offset}&limit=${limit}`),
   credentials: (id: string) => request<{ username: string; password: string }>(`/api/vouchers/${encodeURIComponent(id)}/credentials`),
   disableVoucher: (id: string) => request<{ state: string }>(`/api/vouchers/${encodeURIComponent(id)}/disable`, { method: 'POST', body: '{}' }),
-  createBatch: (body: { package_id: string; count: number }) => request<{ id: string; state: string; requested_count: number; succeeded_count: number; failed_count: number; vouchers: { id: string; username: string; password: string; state: string; error?: string }[] }>('/api/vouchers/batches', { method: 'POST', body: JSON.stringify(body) }),
+  createBatch: (body: { package_id: string; count: number; template_version_id?: string }) => request<{ id: string; state: string; requested_count: number; succeeded_count: number; failed_count: number; vouchers: { id: string; username: string; password: string; state: string; error?: string }[] }>('/api/vouchers/batches', { method: 'POST', body: JSON.stringify(body) }),
   inventoryMovement: (body: { action: 'allocate' | 'transfer' | 'return'; voucher_ids: string[]; distributor_id?: string; note?: string }) => request<{ action: string; count: number }>('/api/inventory/movements', { method: 'POST', body: JSON.stringify(body) }),
 };

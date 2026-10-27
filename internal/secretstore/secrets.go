@@ -16,6 +16,7 @@ const keySize = 32
 
 type Store struct {
 	aead cipher.AEAD
+	key  []byte
 }
 
 // Open loads or creates a per-installation encryption key. The key is kept in a
@@ -67,8 +68,10 @@ func Open(directory string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initialize local encryption: %w", err)
 	}
-	return &Store{aead: aead}, nil
+	return &Store{aead: aead, key: append([]byte(nil), key...)}, nil
 }
+
+func (s *Store) ExportKey() []byte { return append([]byte(nil), s.key...) }
 
 func (s *Store) Encrypt(plaintext []byte) ([]byte, error) {
 	nonce := make([]byte, s.aead.NonceSize())

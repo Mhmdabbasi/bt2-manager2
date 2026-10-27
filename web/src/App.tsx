@@ -1,24 +1,28 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  Activity, AlertCircle, ArrowUpLeft, Boxes, CheckCircle2,
+  Activity, AlertCircle, ArrowUpLeft, Boxes, CheckCircle2, Database,
   ChevronDown, CircleHelp, Clock3, Eye, FilePlus2, Gauge, HardDrive, LayoutDashboard,
   LoaderCircle, LockKeyhole, LogOut, Menu, Network, PackageCheck, Plus, Printer,
-  RefreshCw, Router, Search, Settings2, ShieldCheck, Signal, Sparkles, Users,
+  RefreshCw, Router, Search, Settings2, ShieldCheck, Signal, Sparkles, UserRound, Users,
   Wifi, WifiOff, X, Zap,
 } from 'lucide-react';
 import { api, type HotspotProfile, type HotspotUser, type RouterInfo, type RouterRecord } from './api';
-import { DistributorsPage, InventoryPage, PackagesPage } from './Modules';
+import { DistributorsPage, InventoryPage, PackagesPage, StudioPage, UserManagerPage } from './Modules';
+import { BackupPage } from './BackupPage';
+import { VoucherPrintSheet } from './VoucherPrintSheet';
 
-type Page = 'overview' | 'routers' | 'packages' | 'vouchers' | 'studio' | 'distributors' | 'inventory';
+type Page = 'overview' | 'routers' | 'packages' | 'vouchers' | 'usermanager' | 'studio' | 'distributors' | 'inventory' | 'backup';
 
 const pageTitles: Record<Page, { title: string; eyebrow: string }> = {
   overview: { title: 'نظرة عامة', eyebrow: 'لوحة التحكم' },
   routers: { title: 'اتصال الراوتر', eyebrow: 'إدارة الشبكة' },
   packages: { title: 'الباقات', eyebrow: 'كتالوج الخدمة' },
   vouchers: { title: 'القسائم والمستخدمون', eyebrow: 'HotSpot' },
+  usermanager: { title: 'User Manager', eyebrow: 'مزامنة قراءة فقط' },
   studio: { title: 'استوديو البطاقات', eyebrow: 'التصميم والطباعة' },
   distributors: { title: 'الموزعون', eyebrow: 'شبكة التوزيع' },
   inventory: { title: 'المخزون والتخصيص', eyebrow: 'حركة المخزون' },
+  backup: { title: 'النسخ الاحتياطي', eyebrow: 'حماية البيانات' },
 };
 
 function App() {
@@ -91,11 +95,14 @@ function App() {
           <span className="nav-label nav-label-gap">إدارة HotSpot</span>
           <NavItem active={page === 'packages'} icon={<PackageCheck size={18} />} label="الباقات" onClick={() => go('packages')} />
           <NavItem active={page === 'vouchers'} icon={<TicketIcon />} label="القسائم والمستخدمون" onClick={() => go('vouchers')} />
+          <NavItem active={page === 'usermanager'} icon={<UserRound size={18} />} label="User Manager" onClick={() => go('usermanager')} />
           <NavItem active={page === 'studio'} icon={<Printer size={18} />} label="استوديو البطاقات" onClick={() => go('studio')} />
 
           <span className="nav-label nav-label-gap">التوزيع</span>
           <NavItem active={page === 'distributors'} icon={<Users size={18} />} label="الموزعون" onClick={() => go('distributors')} />
           <NavItem active={page === 'inventory'} icon={<Boxes size={18} />} label="المخزون والتخصيص" onClick={() => go('inventory')} />
+          <span className="nav-label nav-label-gap">الجهاز والبيانات</span>
+          <NavItem active={page === 'backup'} icon={<Database size={18} />} label="النسخ الاحتياطي" onClick={() => go('backup')} />
         </nav>
 
         <div className="sidebar-bottom">
@@ -132,9 +139,11 @@ function App() {
           {page === 'routers' && <RoutersPage router={router} savedRouters={savedRouters} onConnected={onConnected} onDisconnect={onDisconnect} />}
           {page === 'packages' && <PackagesPage connected={!!router} />}
           {page === 'vouchers' && <VouchersPage connected={!!router} />}
-          {page === 'studio' && <ComingSoon icon={<Printer size={21} />} title="استوديو البطاقات" description="سيضم محرر القالب، معاينة PDF، دعم العربية وقياسات الطباعة الفعلية، مع حفظ نسخة التصميم المرتبطة بكل دفعة." />}
+          {page === 'usermanager' && <UserManagerPage connected={!!router} />}
+          {page === 'studio' && <StudioPage />}
           {page === 'distributors' && <DistributorsPage />}
           {page === 'inventory' && <InventoryPage connected={!!router} />}
+          {page === 'backup' && <BackupPage />}
         </div>
         <footer className="app-footer"><span><LockKeyhole size={13} /> تشغيل محلي · مستخدم واحد</span><span>BT2 Manager <i>·</i> معاينة مبكرة</span></footer>
       </main>
@@ -268,6 +277,8 @@ function VouchersPage({ connected }: { connected: boolean }) {
   const [managed, setManaged] = useState<Awaited<ReturnType<typeof api.vouchers>>['items']>([]);
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [packages, setPackages] = useState<Awaited<ReturnType<typeof api.packages>>>([]);
+  const [templates, setTemplates] = useState<Awaited<ReturnType<typeof api.templates>>>([]);
+  const [templateVersionID, setTemplateVersionID] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
@@ -276,19 +287,28 @@ function VouchersPage({ connected }: { connected: boolean }) {
   const [packageID, setPackageID] = useState('');
   const [batchCount, setBatchCount] = useState('10');
   const [batchResult, setBatchResult] = useState<Awaited<ReturnType<typeof api.createBatch>> | null>(null);
+  const [batchPrintInfo, setBatchPrintInfo] = useState<{ versionID: string; packageName: string; validity: string } | null>(null);
+  const [printDocument, setPrintDocument] = useState<import('./api').CardTemplateDocument | null>(null);
   const [success, setSuccess] = useState('');
 
   const load = async () => {
     if (!connected) return;
     setLoading(true); setError('');
     try {
-      const [loadedProfiles, loadedUsers, loadedPackages, loadedVouchers] = await Promise.all([api.profiles(), api.users(), api.packages(), api.vouchers(0,200)]);
-      setProfiles(loadedProfiles); setUsers(loadedUsers); setPackages(loadedPackages.filter((item) => item.enabled && item.service_type === 'hotspot')); setManaged(loadedVouchers.items);
+      const [loadedProfiles, loadedUsers, loadedPackages, loadedVouchers, loadedTemplates] = await Promise.all([api.profiles(), api.users(), api.packages(), api.vouchers(0,200), api.templates()]);
+      setProfiles(loadedProfiles); setUsers(loadedUsers); setPackages(loadedPackages.filter((item) => item.enabled && item.service_type === 'hotspot')); setManaged(loadedVouchers.items); setTemplates(loadedTemplates);
+      if (!templateVersionID && loadedTemplates[0]) setTemplateVersionID(loadedTemplates[0].version_id);
       if (!packageID && loadedPackages[0]) setPackageID(loadedPackages[0].id);
     } catch (err) { setError(err instanceof Error ? err.message : 'تعذر قراءة بيانات HotSpot'); }
     finally { setLoading(false); }
   };
   useEffect(() => { void load(); }, [connected]);
+  useEffect(() => {
+    if (!batchPrintInfo?.versionID) { setPrintDocument(null); return; }
+    let cancelled = false;
+    api.templateVersion(batchPrintInfo.versionID).then((item) => { if (!cancelled) setPrintDocument(item.document ?? null); }).catch(() => { if (!cancelled) setPrintDocument(null); });
+    return () => { cancelled = true; };
+  }, [batchPrintInfo]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -296,8 +316,8 @@ function VouchersPage({ connected }: { connected: boolean }) {
     if (!selectedPackage || !window.confirm(`سيتم إنشاء ${batchCount} مستخدم فعلياً على الراوتر بملف «${selectedPackage.profile_name}». هل تريد المتابعة؟`)) return;
     setSaving(true); setError(''); setSuccess(''); setBatchResult(null);
     try {
-      const result = await api.createBatch({ package_id: packageID, count: Number(batchCount) });
-      setBatchResult(result); setFormOpen(false); setSuccess(`انتهت الدفعة: نجح ${result.succeeded_count} من ${result.requested_count}.`);
+      const result = await api.createBatch({ package_id: packageID, count: Number(batchCount), template_version_id: templateVersionID || undefined });
+      setBatchResult(result); setBatchPrintInfo({ versionID: templateVersionID, packageName: selectedPackage.name, validity: selectedPackage.validity_label }); setFormOpen(false); setSuccess(`انتهت الدفعة: نجح ${result.succeeded_count} من ${result.requested_count}.`);
       await load();
     } catch (err) { setError(err instanceof Error ? err.message : 'تعذر إنشاء الدفعة'); }
     finally { setSaving(false); }
@@ -316,6 +336,13 @@ function VouchersPage({ connected }: { connected: boolean }) {
     try { await api.disableVoucher(id); setSuccess(`تم تعطيل ${username}.`); await load(); }
     catch (err) { setError(err instanceof Error ? err.message : 'تعذر تعطيل القسيمة'); }
   };
+  const printBatch = async () => {
+    if (batchPrintInfo?.versionID && !printDocument) {
+      try { const item = await api.templateVersion(batchPrintInfo.versionID); setPrintDocument(item.document ?? null); }
+      catch { /* The built-in layout remains available if the saved template cannot be read. */ }
+    }
+    window.requestAnimationFrame(() => window.print());
+  };
 
   const visibleUsers = useMemo(() => users.filter((u) => `${u.name} ${u.profile} ${u.server}`.toLowerCase().includes(query.toLowerCase())), [users, query]);
 
@@ -324,8 +351,9 @@ function VouchersPage({ connected }: { connected: boolean }) {
       <div className="page-heading"><div><div className="eyebrow"><Users size={14} /> HotSpot</div><h1>القسائم والمستخدمون</h1><p>قراءة حسابات HotSpot من الراوتر وإضافة مستخدم واحد بشكل صريح.</p></div><div className="heading-actions"><button className="button button-quiet" onClick={() => void load()} disabled={!connected || loading}><RefreshCw size={15} className={loading ? 'spin' : ''} /> مزامنة</button><button className="button button-primary" onClick={() => setFormOpen((v) => !v)} disabled={!connected}><Plus size={16} /> دفعة جديدة</button></div></div>
       {success && <div className="success-banner"><CheckCircle2 size={17} />{success}<button onClick={() => setSuccess('')}><X size={14} /></button></div>}
       {!connected ? <div className="surface empty-page"><span className="empty-big-icon"><Router size={28} /></span><h3>اربط الراوتر لعرض المستخدمين</h3><p>تظهر البيانات بعد نجاح الاتصال. لا توجد بيانات تجريبية أو أرقام افتراضية في هذه الصفحة.</p></div> : <>
-        {formOpen && <section className="surface create-user-panel"><div className="surface-heading"><div><h3>إنشاء دفعة HotSpot</h3><p>تُسجّل الدفعة محلياً قبل الكتابة، وتُعرض نتيجة كل قسيمة على حدة.</p></div><button className="icon-button" onClick={() => setFormOpen(false)} aria-label="إغلاق"><X size={17} /></button></div><form className="create-user-form" onSubmit={submit}><label className="field"><span>الباقة <b>*</b></span><select value={packageID} onChange={(e) => setPackageID(e.target.value)} required><option value="" disabled>اختر باقة مفعّلة</option>{packages.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.profile_name}</option>)}</select></label><label className="field"><span>عدد القسائم <b>*</b></span><input value={batchCount} onChange={(e) => setBatchCount(e.target.value)} type="number" min={1} max={200} required /></label><span className="batch-security-note"><ShieldCheck size={15} /> كلمات المرور عشوائية ومشفّرة محلياً.</span><button className="button button-primary" disabled={saving || !packages.length}>{saving ? <LoaderCircle size={15} className="spin" /> : <Plus size={15} />} إنشاء الدفعة</button></form></section>}
-        {batchResult && <section className="surface generated-result"><div className="surface-heading"><div><h3>نتيجة الدفعة <bdi>#{batchResult.id.slice(0,8)}</bdi></h3><p>نجح {batchResult.succeeded_count} · تعذر {batchResult.failed_count} من أصل {batchResult.requested_count}</p></div><span className={`state-badge ${batchResult.state === 'completed' ? 'state-on' : 'state-off'}`}><i />{batchResult.state === 'completed' ? 'مكتملة' : batchResult.state === 'partial' ? 'جزئية' : 'تحتاج مراجعة'}</span></div><div className="generated-credentials">{batchResult.vouchers.filter((item) => item.state === 'active').map((item) => <div className="credential-row" key={item.id}><strong>{item.username}</strong><code>{item.password || 'مشفّرة — استخدم عرض بيانات القسيمة'}</code><CheckCircle2 size={15} /></div>)}{!batchResult.succeeded_count && <p className="muted-empty">لم تنجح أي قسيمة؛ راجع حالة الراوتر قبل إعادة المحاولة.</p>}</div><small className="result-disclaimer"><LockKeyhole size={12} /> تُعرض كلمات المرور الآن فقط. ويمكن استعادتها لاحقاً من السجل المحلي بعد التحقق من الصلاحية.</small></section>}
+        {formOpen && <section className="surface create-user-panel"><div className="surface-heading"><div><h3>إنشاء دفعة HotSpot</h3><p>تُسجّل الدفعة محلياً قبل الكتابة، وتُعرض نتيجة كل قسيمة على حدة.</p></div><button className="icon-button" onClick={() => setFormOpen(false)} aria-label="إغلاق"><X size={17} /></button></div><form className="create-user-form" onSubmit={submit}><label className="field"><span>الباقة <b>*</b></span><select value={packageID} onChange={(e) => setPackageID(e.target.value)} required><option value="" disabled>اختر باقة مفعّلة</option>{packages.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.profile_name}</option>)}</select></label><label className="field"><span>عدد القسائم <b>*</b></span><input value={batchCount} onChange={(e) => setBatchCount(e.target.value)} type="number" min={1} max={200} required /></label><label className="field"><span>قالب الطباعة</span><select value={templateVersionID} onChange={(e)=>setTemplateVersionID(e.target.value)}><option value="">بدون قالب</option>{templates.map((item)=><option key={item.version_id} value={item.version_id}>{item.name} · v{item.version}</option>)}</select></label><span className="batch-security-note"><ShieldCheck size={15} /> كلمات المرور عشوائية ومشفّرة محلياً.</span><button className="button button-primary" disabled={saving || !packages.length}>{saving ? <LoaderCircle size={15} className="spin" /> : <Plus size={15} />} إنشاء الدفعة</button></form></section>}
+        {batchResult && <section className="surface generated-result"><div className="surface-heading"><div><h3>نتيجة الدفعة <bdi>#{batchResult.id.slice(0,8)}</bdi></h3><p>نجح {batchResult.succeeded_count} · تعذر {batchResult.failed_count} من أصل {batchResult.requested_count}</p></div><span className={`state-badge ${batchResult.state === 'completed' ? 'state-on' : 'state-off'}`}><i />{batchResult.state === 'completed' ? 'مكتملة' : batchResult.state === 'partial' ? 'جزئية' : 'تحتاج مراجعة'}</span><button className="button button-quiet compact-button" onClick={() => void printBatch()} disabled={!batchResult.succeeded_count}><Printer size={14}/> طباعة الناجح</button></div><div className="generated-credentials">{batchResult.vouchers.filter((item) => item.state === 'active').map((item) => <div className="credential-row" key={item.id}><strong>{item.username}</strong><code>{item.password || 'مشفّرة — استخدم عرض بيانات القسيمة'}</code><CheckCircle2 size={15} /></div>)}{!batchResult.succeeded_count && <p className="muted-empty">لم تنجح أي قسيمة؛ راجع حالة الراوتر قبل إعادة المحاولة.</p>}</div><small className="result-disclaimer"><LockKeyhole size={12} /> تُعرض كلمات المرور الآن فقط. ويمكن استعادتها لاحقاً من السجل المحلي بعد التحقق من الصلاحية.</small></section>}
+        {batchResult && batchResult.succeeded_count > 0 && <VoucherPrintSheet vouchers={batchResult.vouchers.filter((item) => item.state === 'active')} document={printDocument} packageName={batchPrintInfo?.packageName ?? ''} validity={batchPrintInfo?.validity ?? ''} />}
         {error && <div className="inline-error page-error"><AlertCircle size={16} />{error}</div>}
         <div className="voucher-stats"><div className="mini-stat"><span className="mini-stat-icon blue"><Users size={17} /></span><span><small>مستخدمو HotSpot</small><strong>{users.length}</strong></span></div><div className="mini-stat"><span className="mini-stat-icon green"><PackageCheck size={17} /></span><span><small>ملفات الخدمة</small><strong>{profiles.length}</strong></span></div><div className="mini-stat"><span className="mini-stat-icon amber"><Activity size={17} /></span><span><small>حالة القراءة</small><strong className="small-stat-value">{loading ? 'جارٍ التحديث' : 'آخر قراءة ناجحة'}</strong></span></div></div>
         {managed.length > 0 && <section className="surface table-panel managed-table"><div className="table-heading"><div><h3>القسائم المُدارة محلياً</h3><p>كلمات المرور مشفرة في قاعدة البيانات؛ إظهارها مؤقت لمدة 30 ثانية.</p></div><span className="profile-count">{managed.length} من آخر 200</span></div><div className="table-scroll"><table><thead><tr><th>اسم المستخدم</th><th>الباقة</th><th>المخزون لدى</th><th>الحالة</th><th>إجراء آمن</th></tr></thead><tbody>{managed.map((item) => <tr key={item.id}><td><strong>{item.username}</strong></td><td>{item.package}</td><td>{item.owner}</td><td><span className={`state-badge ${item.state === 'active' ? 'state-on' : 'state-off'}`}><i />{item.state === 'active' ? 'نشطة' : item.state === 'disabled' ? 'معطلة' : item.state === 'failed' ? 'فشلت' : item.state}</span></td><td className="managed-actions">{revealed[item.id] ? <code>{revealed[item.id]}</code> : <button className="text-button" onClick={() => void revealCredentials(item.id)}><Eye size={14} /> كلمة المرور</button>}{item.state === 'active' && <button className="disable-link" onClick={() => void disableVoucher(item.id,item.username)}>تعطيل</button>}</td></tr>)}</tbody></table></div></section>}
@@ -334,10 +362,6 @@ function VouchersPage({ connected }: { connected: boolean }) {
       </>}
     </>
   );
-}
-
-function ComingSoon({ icon, title, description }: { icon: ReactNode; title: string; description: string }) {
-  return <><div className="page-heading compact-heading"><div><div className="eyebrow">إدارة العمليات</div><h1>{title}</h1><p>{description}</p></div></div><section className="surface planned-module"><div className="planned-icon">{icon}</div><span className="planned-label"><span /> ضمن نطاق الإصدار الأول</span><h2>{title}</h2><p>{description}</p><div className="planned-rule" /><div className="planned-foot"><ShieldCheck size={16} /><span>تُبنى هذه الوحدة على سجل محلي قابل للمراجعة، دون توسيع النطاق إلى التحصيل المالي.</span></div></section></>;
 }
 
 export default App;

@@ -34,8 +34,9 @@ type batchResult struct {
 
 func (s *Server) createBatch(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		PackageID string `json:"package_id"`
-		Count     int    `json:"count"`
+		PackageID         string `json:"package_id"`
+		Count             int    `json:"count"`
+		TemplateVersionID string `json:"template_version_id"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -86,6 +87,13 @@ func (s *Server) createBatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "ملف الباقة غير موجود على الراوتر النشط")
 		return
 	}
+	if input.TemplateVersionID != "" {
+		var exists int
+		if err := s.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM template_versions WHERE id=?`, input.TemplateVersionID).Scan(&exists); err != nil || exists != 1 {
+			writeError(w, http.StatusBadRequest, "إصدار قالب البطاقة غير موجود")
+			return
+		}
+	}
 	var routerID string
 	if err := s.db.QueryRowContext(r.Context(), `SELECT id FROM routers WHERE address=? AND port=?`, active.Address, active.Port).Scan(&routerID); err != nil {
 		writeError(w, http.StatusInternalServerError, "تعذر ربط الدفعة بسجل الراوتر المحلي")
@@ -131,7 +139,7 @@ func (s *Server) createBatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "تعذر بدء تسجيل الدفعة")
 		return
 	}
-	if _, err = tx.ExecContext(r.Context(), `INSERT INTO batches(id,router_id,package_id,state,requested_count,created_at) VALUES(?,?,?,'running',?,?)`, batchID, routerID, pkg.ID, input.Count, now); err != nil {
+	if _, err = tx.ExecContext(r.Context(), `INSERT INTO batches(id,router_id,package_id,state,requested_count,template_version_id,created_at) VALUES(?,?,?,'running',?,?,?)`, batchID, routerID, pkg.ID, input.Count, nullIfEmpty(input.TemplateVersionID), now); err != nil {
 		tx.Rollback()
 		writeError(w, http.StatusInternalServerError, "تعذر تسجيل الدفعة")
 		return
