@@ -13,6 +13,8 @@ if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Push-Location $root
 try {
+  go mod tidy
+  if ($LASTEXITCODE -ne 0) { throw 'Go dependency resolution failed.' }
   Push-Location web
   try {
     npm ci

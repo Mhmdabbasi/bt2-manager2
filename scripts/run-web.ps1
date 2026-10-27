@@ -13,6 +13,8 @@ try {
     Push-Location web
     try { npm ci } finally { Pop-Location }
   }
+  go mod tidy
+  if ($LASTEXITCODE -ne 0) { throw 'Go dependency resolution failed.' }
   Push-Location web
   try {
     npm run build
