@@ -1,0 +1,61 @@
+name: CI
+on:
+  push:
+    branches: [main, "arena/**"]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+      - name: Typecheck and build frontend assets
+        working-directory: web
+        run: npm run typecheck && npm run build
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Resolve and verify Go modules
+        run: go mod tidy
+      - name: Test backend
+        run: go test -race ./...
+      - name: Vet backend
+        run: go vet ./...
+      - name: Build local web application
+        run: go build ./cmd/bt2-manager2
+  windows-desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+      - name: Build embedded UI
+        working-directory: web
+        run: npm run typecheck && npm run build
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Resolve Go modules
+        run: go mod tidy
+      - name: Prepare build directory
+        run: New-Item -ItemType Directory -Force build
+      - name: Build desktop application
+        run: go build -o build/BT2Manager2.exe ./cmd/desktop
+      - name: Build browser application
+        run: go build -o build/bt2-manager2.exe ./cmd/bt2-manager2

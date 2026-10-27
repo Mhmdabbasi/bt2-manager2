@@ -1,0 +1,26 @@
+# Frontend dependencies and local build state
+web/node_modules/
+web/.vite/
+web/coverage/
+
+# Local application data and secrets
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+local-secret.key
+.env
+.env.*
+!.env.example
+
+# Go build artifacts
+/build/
+*.exe
+*.test
+*.out
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
