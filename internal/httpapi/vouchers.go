@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/Mhmdabbasi/bt2-manager2/internal/routeros"
 )
 
 type generatedVoucher struct {
