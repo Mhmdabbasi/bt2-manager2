@@ -11,7 +11,6 @@ import (
 	"time"
 
 	ros "github.com/Mhmdabbasi/routeros-api-Go"
-	rosresources "github.com/Mhmdabbasi/routeros-api-Go/resources"
 	"github.com/Mhmdabbasi/bt2-manager2/internal/usermanager"
 )
 
@@ -172,7 +171,7 @@ func (m *Manager) Profiles(ctx context.Context) ([]HotspotProfile, error) {
 	}
 	readCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	list, err := rosresources.NewHotspotUserProfile(current.api.Client()).ListContext(readCtx)
+	list, err := ros.NewBaseResource(current.api.Client(), "/ip/hotspot/user/profile").ListContext(readCtx)
 	if err != nil {
 		return nil, fmt.Errorf("قراءة ملفات HotSpot: %w", err)
 	}
@@ -208,7 +207,7 @@ func (m *Manager) Users(ctx context.Context) ([]HotspotUser, error) {
 	}
 	readCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	list, err := rosresources.NewHotspotUser(current.api.Client()).ListContext(readCtx)
+	list, err := ros.NewBaseResource(current.api.Client(), "/ip/hotspot/user").ListContext(readCtx)
 	if err != nil {
 		return nil, fmt.Errorf("قراءة مستخدمي HotSpot: %w", err)
 	}
@@ -231,7 +230,7 @@ func (m *Manager) FindUser(ctx context.Context, name string) (HotspotUser, bool,
 	}
 	readCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	resource, err := rosresources.NewHotspotUser(m.current.api.Client()).FindOneContext(readCtx, map[string]string{"name": name})
+	resource, err := ros.NewBaseResource(m.current.api.Client(), "/ip/hotspot/user").FindOneContext(readCtx, map[string]string{"name": name})
 	if errors.Is(err, ros.ErrResourceNotFound) {
 		return HotspotUser{}, false, nil
 	}
@@ -252,7 +251,7 @@ func (m *Manager) DisableUser(ctx context.Context, id string) error {
 	}
 	writeCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	return rosresources.NewHotspotUser(m.current.api.Client()).DisableContext(writeCtx, id)
+	return ros.NewBaseResource(m.current.api.Client(), "/ip/hotspot/user").DisableContext(writeCtx, id)
 }
 
 func (m *Manager) CreateUser(ctx context.Context, name, password, profile string) (HotspotUser, error) {
@@ -267,8 +266,8 @@ func (m *Manager) CreateUser(ctx context.Context, name, password, profile string
 	}
 	writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	resource := rosresources.NewHotspotUser(current.api.Client())
-	id, err := resource.CreateUserContext(writeCtx, name, password, profile)
+	resource := ros.NewBaseResource(current.api.Client(), "/ip/hotspot/user")
+	id, err := resource.AddContext(writeCtx, map[string]string{"name": name, "password": password, "profile": profile})
 	if err != nil {
 		return HotspotUser{}, fmt.Errorf("إنشاء مستخدم HotSpot: %w", err)
 	}

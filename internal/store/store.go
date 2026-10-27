@@ -1,11 +1,9 @@
 package store
 
 import (
-	"context"
 	"database/sql"
 	"embed"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
