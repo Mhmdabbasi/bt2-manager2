@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -70,11 +71,29 @@ type spa struct{ files fs.FS }
 
 func spaHandler(files fs.FS) http.Handler { return spa{files:files} }
 
+// assetName cleans URL paths with slash semantics on every operating system.
+// filepath.Clean is platform-specific and turns URLs into backslash paths on Windows.
+func assetName(urlPath string) string {
+	name := strings.TrimPrefix(path.Clean("/"+urlPath), "/")
+	if name == "" || name == "." {
+		return "index.html"
+	}
+	return name
+}
+
 func (s spa) ServeHTTP(w http.ResponseWriter,r *http.Request) {
-	name:=strings.TrimPrefix(filepath.Clean("/"+r.URL.Path),"/")
-	if name=="."||name=="" { name="index.html" }
-	file,err:=s.files.Open(name)
-	if err!=nil { name="index.html";file,err=s.files.Open(name) }
+	name := assetName(r.URL.Path)
+	file, err := s.files.Open(name)
+	if err != nil {
+		// A missing static asset must not silently return index.html (and its
+		// text/html MIME type) as a JavaScript or stylesheet response.
+		if path.Ext(name) != "" {
+			http.NotFound(w, r)
+			return
+		}
+		name = "index.html"
+		file, err = s.files.Open(name)
+	}
 	if err!=nil { http.Error(w,"web assets unavailable; build the frontend first",http.StatusServiceUnavailable);return }
 	_ = file.Close()
 	w.Header().Set("X-Content-Type-Options","nosniff")
