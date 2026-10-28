@@ -45,6 +45,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/routers/connect", s.connectRouter)
 	s.mux.HandleFunc("POST /api/routers/disconnect", s.disconnectRouter)
 	s.mux.HandleFunc("GET /api/hotspot/profiles", s.hotspotProfiles)
+	s.mux.HandleFunc("GET /api/hotspot/servers", s.hotspotServers)
 	s.mux.HandleFunc("GET /api/hotspot/users", s.hotspotUsers)
 	s.mux.HandleFunc("GET /api/usermanager", s.savedUserManager)
 	s.mux.HandleFunc("POST /api/usermanager/sync", s.syncUserManager)
@@ -57,8 +58,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/templates", s.listTemplates)
 	s.mux.HandleFunc("GET /api/template-versions/{id}", s.getTemplateVersion)
 	s.mux.HandleFunc("POST /api/templates", s.saveTemplate)
+	s.mux.HandleFunc("POST /api/templates/{id}/archive", s.archiveTemplate)
 	s.mux.HandleFunc("GET /api/templates/{id}", s.getTemplate)
 	s.mux.HandleFunc("PUT /api/distributors/{id}", s.updateDistributor)
+	s.mux.HandleFunc("GET /api/distributors/{id}/packages", s.distributorPackages)
+	s.mux.HandleFunc("PUT /api/distributors/{id}/packages", s.updateDistributorPackages)
 	s.mux.HandleFunc("GET /api/inventory", s.inventory)
 	s.mux.HandleFunc("POST /api/inventory/movements", s.inventoryMovement)
 	s.mux.HandleFunc("POST /api/vouchers/batches", s.createBatch)
@@ -66,6 +70,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/vouchers/{id}/credentials", s.voucherCredentials)
 	s.mux.HandleFunc("POST /api/vouchers/{id}/disable", s.disableVoucher)
 	s.mux.HandleFunc("GET /api/batches", s.listBatches)
+	s.mux.HandleFunc("GET /api/batches/{id}", s.batchDetails)
+	s.mux.HandleFunc("POST /api/batches/{id}/printed", s.markBatchPrinted)
+	s.mux.HandleFunc("POST /api/batches/{id}/disable", s.disableBatch)
+	s.mux.HandleFunc("POST /api/batches/{id}/enable", s.enableBatch)
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
@@ -158,6 +166,16 @@ func (s *Server) hotspotProfiles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, profiles)
 }
 
+func (s *Server) hotspotServers(w http.ResponseWriter, r *http.Request) {
+	servers, err := s.routers.HotspotServers(r.Context())
+	if err != nil {
+		if errors.Is(err, routerosadapter.ErrNotConnected) { writeError(w, http.StatusConflict, "اتصل بالراوتر أولاً"); return }
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, append([]string{"all"}, servers...))
+}
+
 func (s *Server) hotspotUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := s.routers.Users(r.Context())
 	if err != nil {
@@ -179,19 +197,20 @@ type packageRecord struct {
 	UsernamePrefix string `json:"username_prefix"`
 	ValidityLabel string `json:"validity_label"`
 	PriceMinor    int64  `json:"price_minor"`
+	DistributorPriceMinor int64 `json:"distributor_price_minor"`
 	Currency      string `json:"currency"`
 	Enabled       bool   `json:"enabled"`
 }
 
 func (s *Server) listPackages(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.QueryContext(r.Context(), `SELECT id,name,service_type,profile_name,username_prefix,validity_label,price_minor,currency,enabled FROM packages ORDER BY name`)
+	rows, err := s.db.QueryContext(r.Context(), `SELECT id,name,service_type,profile_name,username_prefix,validity_label,price_minor,distributor_price_minor,currency,enabled FROM packages ORDER BY name`)
 	if err != nil { writeError(w, http.StatusInternalServerError, "تعذر قراءة الباقات"); return }
 	defer rows.Close()
 	items := make([]packageRecord, 0)
 	for rows.Next() {
 		var item packageRecord
 		var enabled int
-		if err := rows.Scan(&item.ID,&item.Name,&item.ServiceType,&item.ProfileName,&item.UsernamePrefix,&item.ValidityLabel,&item.PriceMinor,&item.Currency,&enabled); err != nil { writeError(w, http.StatusInternalServerError, "تعذر قراءة الباقة"); return }
+		if err := rows.Scan(&item.ID,&item.Name,&item.ServiceType,&item.ProfileName,&item.UsernamePrefix,&item.ValidityLabel,&item.PriceMinor,&item.DistributorPriceMinor,&item.Currency,&enabled); err != nil { writeError(w, http.StatusInternalServerError, "تعذر قراءة الباقة"); return }
 		item.Enabled = enabled == 1
 		items = append(items, item)
 	}
@@ -207,11 +226,11 @@ func (s *Server) createPackage(w http.ResponseWriter, r *http.Request) {
 	if item.Name == "" || item.ProfileName == "" || item.UsernamePrefix == "" { writeError(w,http.StatusBadRequest,"الاسم والملف والبادئة مطلوبة"); return }
 	if item.ServiceType != "hotspot" && item.ServiceType != "user_manager" { writeError(w,http.StatusBadRequest,"نوع الخدمة غير صالح"); return }
 	if len(item.UsernamePrefix) > 8 || !isAlphaNumeric(item.UsernamePrefix) { writeError(w,http.StatusBadRequest,"البادئة يجب أن تكون حتى 8 أحرف/أرقام لاتينية"); return }
-	if item.PriceMinor < 0 { writeError(w,http.StatusBadRequest,"السعر لا يمكن أن يكون سالباً"); return }
+	if item.PriceMinor < 0 || item.DistributorPriceMinor < 0 || item.DistributorPriceMinor > item.PriceMinor { writeError(w,http.StatusBadRequest,"الأسعار غير صالحة؛ يجب ألا يكون سعر الموزع أعلى من سعر المستخدم"); return }
 	if item.Currency == "" { item.Currency = "YER" }
 	id, err := randomID(); if err != nil { writeError(w,http.StatusInternalServerError,"تعذر إنشاء معرّف"); return }
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err = s.db.ExecContext(r.Context(), `INSERT INTO packages(id,name,service_type,profile_name,username_prefix,validity_label,price_minor,currency,enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,1,?,?)`, id,item.Name,item.ServiceType,item.ProfileName,item.UsernamePrefix,item.ValidityLabel,item.PriceMinor,item.Currency,now,now)
+	_, err = s.db.ExecContext(r.Context(), `INSERT INTO packages(id,name,service_type,profile_name,username_prefix,validity_label,price_minor,distributor_price_minor,currency,enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,1,?,?)`, id,item.Name,item.ServiceType,item.ProfileName,item.UsernamePrefix,item.ValidityLabel,item.PriceMinor,item.DistributorPriceMinor,item.Currency,now,now)
 	if err != nil { writeError(w,http.StatusConflict,"تعذر حفظ الباقة؛ تحقق من عدم تكرار الاسم"); return }
 	item.ID=id; item.Enabled=true; writeJSON(w,http.StatusCreated,item)
 }
@@ -220,9 +239,9 @@ func (s *Server) updatePackage(w http.ResponseWriter, r *http.Request) {
 	var item packageRecord
 	if err := decodeJSON(w,r,&item); err != nil { writeError(w,http.StatusBadRequest,err.Error()); return }
 	item.Name=strings.TrimSpace(item.Name); item.ProfileName=strings.TrimSpace(item.ProfileName); item.UsernamePrefix=strings.ToUpper(strings.TrimSpace(item.UsernamePrefix)); item.Currency=strings.ToUpper(strings.TrimSpace(item.Currency))
-	if item.Name=="" || item.ProfileName=="" || (item.ServiceType!="hotspot" && item.ServiceType!="user_manager") || !isAlphaNumeric(item.UsernamePrefix) || len(item.UsernamePrefix)>8 || item.PriceMinor<0 { writeError(w,http.StatusBadRequest,"بيانات الباقة غير صالحة"); return }
+	if item.Name=="" || item.ProfileName=="" || (item.ServiceType!="hotspot" && item.ServiceType!="user_manager") || !isAlphaNumeric(item.UsernamePrefix) || len(item.UsernamePrefix)>8 || item.PriceMinor<0 || item.DistributorPriceMinor<0 || item.DistributorPriceMinor>item.PriceMinor { writeError(w,http.StatusBadRequest,"بيانات الباقة أو أسعارها غير صالحة"); return }
 	if item.Currency=="" { item.Currency="YER" }
-	result,err:=s.db.ExecContext(r.Context(),`UPDATE packages SET name=?,service_type=?,profile_name=?,username_prefix=?,validity_label=?,price_minor=?,currency=?,updated_at=? WHERE id=?`,item.Name,item.ServiceType,item.ProfileName,item.UsernamePrefix,item.ValidityLabel,item.PriceMinor,item.Currency,time.Now().UTC().Format(time.RFC3339),r.PathValue("id"))
+	result,err:=s.db.ExecContext(r.Context(),`UPDATE packages SET name=?,service_type=?,profile_name=?,username_prefix=?,validity_label=?,price_minor=?,distributor_price_minor=?,currency=?,updated_at=? WHERE id=?`,item.Name,item.ServiceType,item.ProfileName,item.UsernamePrefix,item.ValidityLabel,item.PriceMinor,item.DistributorPriceMinor,item.Currency,time.Now().UTC().Format(time.RFC3339),r.PathValue("id"))
 	if err!=nil { writeError(w,http.StatusConflict,"تعذر تحديث الباقة؛ تحقق من الاسم"); return }; count,_:=result.RowsAffected(); if count==0 { writeError(w,http.StatusNotFound,"الباقة غير موجودة"); return }; item.ID=r.PathValue("id"); item.Enabled=true; writeJSON(w,http.StatusOK,item)
 }
 
@@ -231,16 +250,16 @@ func (s *Server) disablePackage(w http.ResponseWriter, r *http.Request) {
 	if err!=nil { writeError(w,http.StatusInternalServerError,"تعذر إيقاف الباقة"); return }; count,_:=result.RowsAffected(); if count==0 { writeError(w,http.StatusNotFound,"الباقة غير موجودة"); return }; w.WriteHeader(http.StatusNoContent)
 }
 
-type distributorRecord struct { ID string `json:"id"`; Name string `json:"name"`; Contact string `json:"contact"`; Notes string `json:"notes"`; Active bool `json:"active"`; CreatedAt string `json:"created_at"` }
+type distributorRecord struct { ID string `json:"id"`; Name string `json:"name"`; Contact string `json:"contact"`; Notes string `json:"notes"`; Active bool `json:"active"`; AllPackagesEnabled bool `json:"all_packages_enabled"`; CreatedAt string `json:"created_at"` }
 
 func (s *Server) listDistributors(w http.ResponseWriter, r *http.Request) {
-	rows,err:=s.db.QueryContext(r.Context(),`SELECT id,name,contact,notes,active,created_at FROM distributors ORDER BY name`); if err!=nil { writeError(w,http.StatusInternalServerError,"تعذر قراءة الموزعين"); return }; defer rows.Close()
-	items:=make([]distributorRecord,0); for rows.Next(){ var x distributorRecord; var active int; if err:=rows.Scan(&x.ID,&x.Name,&x.Contact,&x.Notes,&active,&x.CreatedAt); err!=nil { writeError(w,http.StatusInternalServerError,"تعذر قراءة الموزع"); return }; x.Active=active==1; items=append(items,x) }; if err:=rows.Err(); err!=nil { writeError(w,http.StatusInternalServerError,"تعذر قراءة الموزعين"); return }; writeJSON(w,http.StatusOK,items)
+	rows,err:=s.db.QueryContext(r.Context(),`SELECT id,name,contact,notes,active,all_packages_enabled,created_at FROM distributors ORDER BY name`); if err!=nil { writeError(w,http.StatusInternalServerError,"تعذر قراءة الموزعين"); return }; defer rows.Close()
+	items:=make([]distributorRecord,0); for rows.Next(){ var x distributorRecord; var active,allPackages int; if err:=rows.Scan(&x.ID,&x.Name,&x.Contact,&x.Notes,&active,&allPackages,&x.CreatedAt); err!=nil { writeError(w,http.StatusInternalServerError,"تعذر قراءة الموزع"); return }; x.Active=active==1; x.AllPackagesEnabled=allPackages==1; items=append(items,x) }; if err:=rows.Err(); err!=nil { writeError(w,http.StatusInternalServerError,"تعذر قراءة الموزعين"); return }; writeJSON(w,http.StatusOK,items)
 }
 
 func (s *Server) createDistributor(w http.ResponseWriter, r *http.Request) {
 	var x distributorRecord; if err:=decodeJSON(w,r,&x); err!=nil { writeError(w,http.StatusBadRequest,err.Error()); return }; x.Name=strings.TrimSpace(x.Name); x.Contact=strings.TrimSpace(x.Contact); x.Notes=strings.TrimSpace(x.Notes)
-	if x.Name=="" || len(x.Name)>120 || len(x.Contact)>160 || len(x.Notes)>1000 { writeError(w,http.StatusBadRequest,"بيانات الموزع غير صالحة"); return }; id,err:=randomID(); if err!=nil { writeError(w,http.StatusInternalServerError,"تعذر إنشاء معرّف"); return }; now:=time.Now().UTC().Format(time.RFC3339); _,err=s.db.ExecContext(r.Context(),`INSERT INTO distributors(id,name,contact,notes,active,created_at,updated_at) VALUES(?,?,?,?,1,?,?)`,id,x.Name,x.Contact,x.Notes,now,now); if err!=nil { writeError(w,http.StatusConflict,"تعذر حفظ الموزع؛ تحقق من عدم تكرار الاسم"); return }; x.ID=id; x.Active=true; x.CreatedAt=now; writeJSON(w,http.StatusCreated,x)
+	if x.Name=="" || len(x.Name)>120 || len(x.Contact)>160 || len(x.Notes)>1000 { writeError(w,http.StatusBadRequest,"بيانات الموزع غير صالحة"); return }; id,err:=randomID(); if err!=nil { writeError(w,http.StatusInternalServerError,"تعذر إنشاء معرّف"); return }; now:=time.Now().UTC().Format(time.RFC3339); _,err=s.db.ExecContext(r.Context(),`INSERT INTO distributors(id,name,contact,notes,active,created_at,updated_at) VALUES(?,?,?,?,1,?,?)`,id,x.Name,x.Contact,x.Notes,now,now); if err!=nil { writeError(w,http.StatusConflict,"تعذر حفظ الموزع؛ تحقق من عدم تكرار الاسم"); return }; x.ID=id; x.Active=true; x.AllPackagesEnabled=true; x.CreatedAt=now; writeJSON(w,http.StatusCreated,x)
 }
 
 func (s *Server) updateDistributor(w http.ResponseWriter, r *http.Request) {

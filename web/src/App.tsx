@@ -1,23 +1,26 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  Activity, AlertCircle, ArrowUpLeft, Boxes, CheckCircle2, Database,
+  Activity, AlertCircle, ArrowUpLeft, Boxes, Camera, CheckCircle2, Database,
   ChevronDown, CircleHelp, Clock3, Eye, FilePlus2, Gauge, HardDrive, LayoutDashboard,
-  LoaderCircle, LockKeyhole, LogOut, Menu, Network, PackageCheck, Plus, Printer,
-  RefreshCw, Router, Search, Settings2, ShieldCheck, Signal, Sparkles, UserRound, Users,
+  LoaderCircle, LockKeyhole, LogOut, Maximize2, Menu, Minimize2, Moon, Network, PackageCheck, Plus, Printer,
+  RefreshCw, Router, Search, Settings2, ShieldCheck, Signal, Sparkles, Sun, UserRound, Users,
   Wifi, WifiOff, X, Zap,
 } from 'lucide-react';
 import { api, type HotspotProfile, type HotspotUser, type RouterInfo, type RouterRecord } from './api';
 import { DistributorsPage, InventoryPage, PackagesPage, StudioPage, UserManagerPage } from './Modules';
 import { BackupPage } from './BackupPage';
+import { BatchArchivePage } from './BatchArchivePage';
 import { VoucherPrintSheet } from './VoucherPrintSheet';
+import { TablePagination } from './TablePagination';
 
-type Page = 'overview' | 'routers' | 'packages' | 'vouchers' | 'usermanager' | 'studio' | 'distributors' | 'inventory' | 'backup';
+type Page = 'overview' | 'routers' | 'packages' | 'vouchers' | 'batch_archive' | 'usermanager' | 'studio' | 'distributors' | 'inventory' | 'backup';
 
 const pageTitles: Record<Page, { title: string; eyebrow: string }> = {
   overview: { title: 'نظرة عامة', eyebrow: 'لوحة التحكم' },
   routers: { title: 'اتصال الراوتر', eyebrow: 'إدارة الشبكة' },
   packages: { title: 'الباقات', eyebrow: 'كتالوج الخدمة' },
   vouchers: { title: 'القسائم والمستخدمون', eyebrow: 'HotSpot' },
+  batch_archive: { title: 'أرشيف دفع القسائم', eyebrow: 'سجل الدفعات' },
   usermanager: { title: 'User Manager', eyebrow: 'مزامنة قراءة فقط' },
   studio: { title: 'استوديو البطاقات', eyebrow: 'التصميم والطباعة' },
   distributors: { title: 'الموزعون', eyebrow: 'شبكة التوزيع' },
@@ -32,6 +35,9 @@ function App() {
   const [backendReady, setBackendReady] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
   const [toast, setToast] = useState('');
+  const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem('bt2.theme') === 'dark'; } catch { return false; } });
+  const [fullscreen, setFullscreen] = useState(false);
+  const [screenshotBusy, setScreenshotBusy] = useState(false);
 
   const refresh = async () => {
     try {
@@ -46,6 +52,15 @@ function App() {
   };
 
   useEffect(() => { void refresh(); }, []);
+  useEffect(() => {
+    document.documentElement.dataset.theme = darkMode ? 'dark' : 'light';
+    try { localStorage.setItem('bt2.theme', darkMode ? 'dark' : 'light'); } catch { /* theme still works for this session */ }
+  }, [darkMode]);
+  useEffect(() => {
+    const update = () => setFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', update);
+    return () => document.removeEventListener('fullscreenchange', update);
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -69,6 +84,32 @@ function App() {
     await api.disconnect();
     setRouter(null);
     setToast('تم إنهاء الاتصال');
+  };
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch { setToast('تعذر تفعيل ملء الشاشة في نافذة التشغيل الحالية.'); }
+  };
+
+  const captureScreen = async () => {
+    setScreenshotBusy(true);
+    try {
+      const { default: html2canvas } = await import('html2canvas');
+      const canvas = await html2canvas(document.documentElement, {
+        useCORS: true, scale: Math.min(window.devicePixelRatio || 1, 2),
+        width: window.innerWidth, height: window.innerHeight, windowWidth: window.innerWidth, windowHeight: window.innerHeight,
+        scrollX: window.scrollX, scrollY: window.scrollY, backgroundColor: darkMode ? '#101819' : '#f4f7f6',
+      });
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('تعذر تحويل لقطة الشاشة إلى PNG');
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = `bt2-manager-${new Date().toISOString().replace(/[:.]/g, '-')}.png`; anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+      setToast('تم تنزيل لقطة الشاشة بصيغة PNG.');
+    } catch (error) { setToast(error instanceof Error ? error.message : 'تعذر التقاط الشاشة.'); }
+    finally { setScreenshotBusy(false); }
   };
 
   return (
@@ -95,6 +136,7 @@ function App() {
           <span className="nav-label nav-label-gap">إدارة HotSpot</span>
           <NavItem active={page === 'packages'} icon={<PackageCheck size={18} />} label="الباقات" onClick={() => go('packages')} />
           <NavItem active={page === 'vouchers'} icon={<TicketIcon />} label="القسائم والمستخدمون" onClick={() => go('vouchers')} />
+          <NavItem active={page === 'batch_archive'} icon={<Printer size={18} />} label="أرشيف دفع القسائم" onClick={() => go('batch_archive')} />
           <NavItem active={page === 'usermanager'} icon={<UserRound size={18} />} label="User Manager" onClick={() => go('usermanager')} />
           <NavItem active={page === 'studio'} icon={<Printer size={18} />} label="استوديو البطاقات" onClick={() => go('studio')} />
 
@@ -127,6 +169,9 @@ function App() {
               <span>{router ? router.identity || router.address : 'لا يوجد راوتر متصل'}</span>
               <ChevronDown size={14} />
             </div>
+            <button className="icon-button topbar-tool" title={fullscreen ? 'إنهاء ملء الشاشة' : 'ملء الشاشة'} aria-label={fullscreen ? 'إنهاء ملء الشاشة' : 'ملء الشاشة'} onClick={() => void toggleFullscreen()}>{fullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}</button>
+            <button className="icon-button topbar-tool" title="التقاط لقطة الشاشة" aria-label="التقاط لقطة الشاشة" onClick={() => void captureScreen()} disabled={screenshotBusy}>{screenshotBusy ? <LoaderCircle size={17} className="spin" /> : <Camera size={17} />}</button>
+            <button className="icon-button topbar-tool" title={darkMode ? 'التبديل إلى الوضع الفاتح' : 'التبديل إلى الوضع الداكن'} aria-label={darkMode ? 'التبديل إلى الوضع الفاتح' : 'التبديل إلى الوضع الداكن'} onClick={() => setDarkMode((value) => !value)}>{darkMode ? <Sun size={17} /> : <Moon size={17} />}</button>
             <button className="icon-button help-button" title="مساعدة" onClick={() => setToast('ابدأ بربط راوتر من صفحة الراوترات. الاتصال الحالي محلي وآمن.') }><CircleHelp size={18} /></button>
             <div className="topbar-divider" />
             <div className="topbar-user"><div className="top-avatar">م</div><ChevronDown size={14} className="muted-icon" /></div>
@@ -139,6 +184,7 @@ function App() {
           {page === 'routers' && <RoutersPage router={router} savedRouters={savedRouters} onConnected={onConnected} onDisconnect={onDisconnect} />}
           {page === 'packages' && <PackagesPage connected={!!router} />}
           {page === 'vouchers' && <VouchersPage connected={!!router} />}
+          {page === 'batch_archive' && <BatchArchivePage />}
           {page === 'usermanager' && <UserManagerPage connected={!!router} />}
           {page === 'studio' && <StudioPage />}
           {page === 'distributors' && <DistributorsPage />}
@@ -274,7 +320,23 @@ function RoutersPage({ router, savedRouters, onConnected, onDisconnect }: { rout
 function VouchersPage({ connected }: { connected: boolean }) {
   const [profiles, setProfiles] = useState<HotspotProfile[]>([]);
   const [users, setUsers] = useState<HotspotUser[]>([]);
+  const [servers, setServers] = useState<string[]>(['all']);
+  const [distributors, setDistributors] = useState<Awaited<ReturnType<typeof api.distributors>>>([]);
+  const [serviceType, setServiceType] = useState<'hotspot'|'user_manager'>('hotspot');
+  const [distributorID, setDistributorID] = useState('');
+  const [outletName, setOutletName] = useState('');
+  const [usernamePrefix, setUsernamePrefix] = useState('');
+  const [tokenMode, setTokenMode] = useState<'alphanumeric'|'letters'|'numbers'>('alphanumeric');
+  const [usernameLength, setUsernameLength] = useState('10');
+  const [hotspotServer, setHotspotServer] = useState('all');
+  const [passwordPolicy, setPasswordPolicy] = useState<'none'|'same_as_username'|'random'>('random');
+  const [distributorPackageAllowed, setDistributorPackageAllowed] = useState(true);
   const [managed, setManaged] = useState<Awaited<ReturnType<typeof api.vouchers>>['items']>([]);
+  const [managedTotal, setManagedTotal] = useState(0);
+  const [managedRefresh, setManagedRefresh] = useState(0);
+  const [managedPage, setManagedPage] = useState(0);
+  const [usersPage, setUsersPage] = useState(0);
+  const [tablePageSize, setTablePageSize] = useState(20);
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [packages, setPackages] = useState<Awaited<ReturnType<typeof api.packages>>>([]);
   const [templates, setTemplates] = useState<Awaited<ReturnType<typeof api.templates>>>([]);
@@ -295,14 +357,40 @@ function VouchersPage({ connected }: { connected: boolean }) {
     if (!connected) return;
     setLoading(true); setError('');
     try {
-      const [loadedProfiles, loadedUsers, loadedPackages, loadedVouchers, loadedTemplates] = await Promise.all([api.profiles(), api.users(), api.packages(), api.vouchers(0,200), api.templates()]);
-      setProfiles(loadedProfiles); setUsers(loadedUsers); setPackages(loadedPackages.filter((item) => item.enabled && item.service_type === 'hotspot')); setManaged(loadedVouchers.items); setTemplates(loadedTemplates);
+      const [loadedProfiles, loadedUsers, loadedPackages, loadedTemplates, loadedServers, loadedDistributors] = await Promise.all([api.profiles(), api.users(), api.packages(), api.templates(), api.hotspotServers(), api.distributors()]);
+      const availablePackages = loadedPackages.filter((item) => item.enabled && item.service_type === serviceType);
+      setProfiles(loadedProfiles); setUsers(loadedUsers); setPackages(availablePackages); setTemplates(loadedTemplates); setServers(loadedServers); setDistributors(loadedDistributors.filter((item)=>item.active));
       if (!templateVersionID && loadedTemplates[0]) setTemplateVersionID(loadedTemplates[0].version_id);
-      if (!packageID && loadedPackages[0]) setPackageID(loadedPackages[0].id);
+      if (!availablePackages.some((item)=>item.id===packageID)) { const prefix=availablePackages[0]?.username_prefix ?? ''; setPackageID(availablePackages[0]?.id ?? ''); setUsernamePrefix(prefix); setUsernameLength((current)=>String(Math.max(Number(current)||10,prefix.length+4))); }
     } catch (err) { setError(err instanceof Error ? err.message : 'تعذر قراءة بيانات HotSpot'); }
     finally { setLoading(false); }
   };
-  useEffect(() => { void load(); }, [connected]);
+  useEffect(() => { void load(); }, [connected, serviceType]);
+  useEffect(() => {
+    if (!connected) { setManaged([]); setManagedTotal(0); return; }
+    let cancelled=false;
+    api.vouchers(managedPage*tablePageSize,tablePageSize,query).then((result)=>{if(!cancelled){setManaged(result.items);setManagedTotal(result.total);if(managedPage>0&&managedPage*tablePageSize>=result.total)setManagedPage(Math.max(0,Math.ceil(result.total/tablePageSize)-1));}}).catch((err)=>{if(!cancelled)setError(err instanceof Error?err.message:'تعذر تحميل القسائم المحفوظة');});
+    return ()=>{cancelled=true};
+  }, [connected,managedPage,tablePageSize,query,managedRefresh]);
+  useEffect(() => {
+    if (!distributorID) { setDistributorPackageAllowed(true); return; }
+    setDistributorPackageAllowed(false);
+    let cancelled = false;
+    api.distributorPackagePolicy(distributorID).then((policy) => { if (!cancelled) { const selected = policy.packages.find((item)=>item.package_id===packageID); setDistributorPackageAllowed(selected?.allowed ?? policy.all_packages_enabled); const prefix=selected?.username_prefix_override || packages.find((item)=>item.id===packageID)?.username_prefix || ''; setUsernamePrefix(prefix); setUsernameLength((current)=>String(Math.max(Number(current)||10,prefix.length+4))); } }).catch(() => { if (!cancelled) setDistributorPackageAllowed(false); });
+    return () => { cancelled = true; };
+  }, [distributorID, packageID, packages]);
+  const applicableTemplates = useMemo(() => templates.filter((item) => item.service_type === serviceType && (
+    item.scope === 'global' && (!item.package_id || item.package_id === packageID) ||
+    item.scope === 'package' && item.package_id === packageID ||
+    item.scope === 'distributor' && item.package_id === packageID && item.distributor_id === distributorID
+  )).sort((a,b) => {
+    const rank = (item: typeof a) => item.scope === 'distributor' ? 0 : item.scope === 'package' ? 1 : item.package_id ? 2 : 3;
+    return rank(a)-rank(b);
+  }), [templates, serviceType, packageID, distributorID]);
+  useEffect(() => {
+    if (applicableTemplates.some((item)=>item.version_id===templateVersionID)) return;
+    setTemplateVersionID(applicableTemplates[0]?.version_id ?? '');
+  }, [applicableTemplates, templateVersionID]);
   useEffect(() => {
     if (!batchPrintInfo?.versionID) { setPrintDocument(null); return; }
     let cancelled = false;
@@ -316,9 +404,9 @@ function VouchersPage({ connected }: { connected: boolean }) {
     if (!selectedPackage || !window.confirm(`سيتم إنشاء ${batchCount} مستخدم فعلياً على الراوتر بملف «${selectedPackage.profile_name}». هل تريد المتابعة؟`)) return;
     setSaving(true); setError(''); setSuccess(''); setBatchResult(null);
     try {
-      const result = await api.createBatch({ package_id: packageID, count: Number(batchCount), template_version_id: templateVersionID || undefined });
+      const result = await api.createBatch({ package_id: packageID, count: Number(batchCount), template_version_id: templateVersionID || undefined, distributor_id: distributorID || undefined, outlet_name: outletName || undefined, username_prefix: usernamePrefix, token_mode: tokenMode, username_length: Number(usernameLength), hotspot_server: hotspotServer, password_policy: passwordPolicy });
       setBatchResult(result); setBatchPrintInfo({ versionID: templateVersionID, packageName: selectedPackage.name, validity: selectedPackage.validity_label }); setFormOpen(false); setSuccess(`انتهت الدفعة: نجح ${result.succeeded_count} من ${result.requested_count}.`);
-      await load();
+      await load(); setManagedRefresh((value)=>value+1);
     } catch (err) { setError(err instanceof Error ? err.message : 'تعذر إنشاء الدفعة'); }
     finally { setSaving(false); }
   };
@@ -333,7 +421,7 @@ function VouchersPage({ connected }: { connected: boolean }) {
   };
   const disableVoucher = async (id: string, username: string) => {
     if (!window.confirm(`سيتم تعطيل «${username}» على الراوتر. هل تريد المتابعة؟`)) return;
-    try { await api.disableVoucher(id); setSuccess(`تم تعطيل ${username}.`); await load(); }
+    try { await api.disableVoucher(id); setSuccess(`تم تعطيل ${username}.`); await load(); setManagedRefresh((value)=>value+1); }
     catch (err) { setError(err instanceof Error ? err.message : 'تعذر تعطيل القسيمة'); }
   };
   const printBatch = async () => {
@@ -341,23 +429,33 @@ function VouchersPage({ connected }: { connected: boolean }) {
       try { const item = await api.templateVersion(batchPrintInfo.versionID); setPrintDocument(item.document ?? null); }
       catch { /* The built-in layout remains available if the saved template cannot be read. */ }
     }
-    window.requestAnimationFrame(() => window.print());
+    document.body.classList.add('printing-vouchers');
+    const cleanupPrintState = () => document.body.classList.remove('printing-vouchers');
+    window.addEventListener('afterprint', cleanupPrintState, { once: true });
+    window.requestAnimationFrame(() => {
+      window.print();
+      if (batchResult?.id) void api.markBatchPrinted(batchResult.id).then(() => setSuccess('تم تسجيل وقت الطباعة في أرشيف الدفعات.')).catch(() => setError('اكتملت الطباعة لكن تعذر تسجيل وقتها في الأرشيف.'));
+      window.setTimeout(cleanupPrintState, 1000);
+    });
   };
 
   const visibleUsers = useMemo(() => users.filter((u) => `${u.name} ${u.profile} ${u.server}`.toLowerCase().includes(query.toLowerCase())), [users, query]);
+  const visibleManaged = managed;
+  const pagedUsers = visibleUsers.slice(usersPage * tablePageSize, (usersPage + 1) * tablePageSize);
+  const pagedManaged = visibleManaged;
 
   return (
     <>
-      <div className="page-heading"><div><div className="eyebrow"><Users size={14} /> HotSpot</div><h1>القسائم والمستخدمون</h1><p>قراءة حسابات HotSpot من الراوتر وإضافة مستخدم واحد بشكل صريح.</p></div><div className="heading-actions"><button className="button button-quiet" onClick={() => void load()} disabled={!connected || loading}><RefreshCw size={15} className={loading ? 'spin' : ''} /> مزامنة</button><button className="button button-primary" onClick={() => setFormOpen((v) => !v)} disabled={!connected}><Plus size={16} /> دفعة جديدة</button></div></div>
+      <div className="page-heading"><div><div className="eyebrow"><Users size={14} /> HotSpot</div><h1>القسائم والمستخدمون</h1><p>توليد دفعات HotSpot، متابعة نتائج كل قسيمة، وإدارة المستخدمين المسجلين.</p></div><div className="heading-actions"><button className="button button-quiet" onClick={() => void load()} disabled={!connected || loading}><RefreshCw size={15} className={loading ? 'spin' : ''} /> مزامنة</button><button className="button button-primary" onClick={() => setFormOpen((v) => !v)} disabled={!connected}><Plus size={16} /> دفعة جديدة</button></div></div>
       {success && <div className="success-banner"><CheckCircle2 size={17} />{success}<button onClick={() => setSuccess('')}><X size={14} /></button></div>}
       {!connected ? <div className="surface empty-page"><span className="empty-big-icon"><Router size={28} /></span><h3>اربط الراوتر لعرض المستخدمين</h3><p>تظهر البيانات بعد نجاح الاتصال. لا توجد بيانات تجريبية أو أرقام افتراضية في هذه الصفحة.</p></div> : <>
-        {formOpen && <section className="surface create-user-panel"><div className="surface-heading"><div><h3>إنشاء دفعة HotSpot</h3><p>تُسجّل الدفعة محلياً قبل الكتابة، وتُعرض نتيجة كل قسيمة على حدة.</p></div><button className="icon-button" onClick={() => setFormOpen(false)} aria-label="إغلاق"><X size={17} /></button></div><form className="create-user-form" onSubmit={submit}><label className="field"><span>الباقة <b>*</b></span><select value={packageID} onChange={(e) => setPackageID(e.target.value)} required><option value="" disabled>اختر باقة مفعّلة</option>{packages.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.profile_name}</option>)}</select></label><label className="field"><span>عدد القسائم <b>*</b></span><input value={batchCount} onChange={(e) => setBatchCount(e.target.value)} type="number" min={1} max={200} required /></label><label className="field"><span>قالب الطباعة</span><select value={templateVersionID} onChange={(e)=>setTemplateVersionID(e.target.value)}><option value="">بدون قالب</option>{templates.map((item)=><option key={item.version_id} value={item.version_id}>{item.name} · v{item.version}</option>)}</select></label><span className="batch-security-note"><ShieldCheck size={15} /> كلمات المرور عشوائية ومشفّرة محلياً.</span><button className="button button-primary" disabled={saving || !packages.length}>{saving ? <LoaderCircle size={15} className="spin" /> : <Plus size={15} />} إنشاء الدفعة</button></form></section>}
-        {batchResult && <section className="surface generated-result"><div className="surface-heading"><div><h3>نتيجة الدفعة <bdi>#{batchResult.id.slice(0,8)}</bdi></h3><p>نجح {batchResult.succeeded_count} · تعذر {batchResult.failed_count} من أصل {batchResult.requested_count}</p></div><span className={`state-badge ${batchResult.state === 'completed' ? 'state-on' : 'state-off'}`}><i />{batchResult.state === 'completed' ? 'مكتملة' : batchResult.state === 'partial' ? 'جزئية' : 'تحتاج مراجعة'}</span><button className="button button-quiet compact-button" onClick={() => void printBatch()} disabled={!batchResult.succeeded_count}><Printer size={14}/> طباعة الناجح</button></div><div className="generated-credentials">{batchResult.vouchers.filter((item) => item.state === 'active').map((item) => <div className="credential-row" key={item.id}><strong>{item.username}</strong><code>{item.password || 'مشفّرة — استخدم عرض بيانات القسيمة'}</code><CheckCircle2 size={15} /></div>)}{!batchResult.succeeded_count && <p className="muted-empty">لم تنجح أي قسيمة؛ راجع حالة الراوتر قبل إعادة المحاولة.</p>}</div><small className="result-disclaimer"><LockKeyhole size={12} /> تُعرض كلمات المرور الآن فقط. ويمكن استعادتها لاحقاً من السجل المحلي بعد التحقق من الصلاحية.</small></section>}
+        {formOpen && <section className="surface create-user-panel"><div className="surface-heading"><div><h3>إنشاء دفعة HotSpot</h3><p>تُسجّل الدفعة محلياً قبل الكتابة، وتُعرض نتيجة كل قسيمة على حدة.</p></div><button className="icon-button" onClick={() => setFormOpen(false)} aria-label="إغلاق"><X size={17} /></button></div><form className="create-user-form batch-wizard-form" onSubmit={submit}><label className="field"><span>نوع الخدمة <b>*</b></span><select value={serviceType} onChange={(e)=>{setServiceType(e.target.value as typeof serviceType);setPackageID('');}}><option value="hotspot">HotSpot</option><option value="user_manager">User Manager</option></select></label><label className="field"><span>الباقة <b>*</b></span><select value={packageID} onChange={(e)=>{const id=e.target.value;setPackageID(id);const prefix=packages.find((item)=>item.id===id)?.username_prefix??'';setUsernamePrefix(prefix);setUsernameLength((current)=>String(Math.max(Number(current)||10,prefix.length+4)));}} required><option value="" disabled>اختر باقة مفعّلة</option>{packages.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.profile_name}</option>)}</select></label><label className="field"><span>تخصيص الدفعة إلى</span><select value={distributorID} onChange={(e)=>setDistributorID(e.target.value)}><option value="">المشغّل (مخزون مركزي)</option>{distributors.map((item)=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="field"><span>اسم نقطة التوزيع (اختياري)</span><input value={outletName} onChange={(e)=>setOutletName(e.target.value)} maxLength={120} placeholder="مثال: بقالة محمد" /></label><label className="field"><span>بادئة اسم المستخدم</span><input value={usernamePrefix} onChange={(e)=>{const prefix=e.target.value.toUpperCase();setUsernamePrefix(prefix);setUsernameLength((current)=>String(Math.max(Number(current)||10,prefix.length+4)));}} maxLength={8} dir="ltr" /></label><label className="field"><span>نوع رمز الدخول</span><select value={tokenMode} onChange={(e)=>setTokenMode(e.target.value as typeof tokenMode)}><option value="alphanumeric">حروف وأرقام</option><option value="letters">حروف فقط</option><option value="numbers">أرقام فقط</option></select></label><label className="field"><span>طول اسم الدخول</span><input value={usernameLength} onChange={(e)=>setUsernameLength(e.target.value)} type="number" min={Math.max(4,usernamePrefix.length+4)} max={32} required /></label>{serviceType==='hotspot'&&<label className="field"><span>خادم HotSpot</span><select value={hotspotServer} onChange={(e)=>setHotspotServer(e.target.value)}>{servers.map((item)=><option key={item} value={item}>{item==='all'?'الكل':item}</option>)}</select></label>}<label className="field"><span>سياسة كلمة المرور</span><select value={passwordPolicy} onChange={(e)=>setPasswordPolicy(e.target.value as typeof passwordPolicy)}><option value="none">بدون كلمة مرور (اسم دخول فقط)</option><option value="same_as_username">مطابقة لاسم الدخول</option><option value="random">عشوائية منفصلة</option></select></label><label className="field"><span>عدد القسائم</span><input value={batchCount} onChange={(e) => setBatchCount(e.target.value)} type="number" min={1} max={200} required /></label><label className="field"><span>قالب الطباعة</span><select value={templateVersionID} onChange={(e)=>setTemplateVersionID(e.target.value)}><option value="">بدون قالب</option>{applicableTemplates.map((item)=><option key={item.version_id} value={item.version_id}>{item.name} · v{item.version}</option>)}</select></label>{serviceType==='user_manager'&&<div className="batch-info-warning field-wide">توليد User Manager للكتابة مؤجل حتى اجتياز اختبارات RouterOS v6 وv7. يمكنك تجهيز الباقة، لكن لن تُرسل أوامر إنشاء.</div>}{!distributorPackageAllowed&&<div className="batch-info-warning field-wide">هذه الباقة غير مسموح بها وفق سياسة الموزع المحدد.</div>}<span className="batch-security-note field-wide"><ShieldCheck size={15} /> كلمات المرور تُشفّر محلياً؛ يظهر سبب كل قسيمة فاشلة ولا يعاد الأمر الملتبس دون مصالحة.</span><button className="button button-primary" disabled={saving || !packages.length || !packageID || serviceType!=='hotspot' || !distributorPackageAllowed}>{saving ? <LoaderCircle size={15} className="spin" /> : <Plus size={15} />} إنشاء الدفعة</button></form></section>}
+        {batchResult && <section className="surface generated-result"><div className="surface-heading"><div><h3>نتيجة الدفعة <bdi>#{batchResult.id.slice(0,8)}</bdi></h3><p>{batchResult.name} · {batchResult.outlet_name} · نجح {batchResult.succeeded_count} · تعذر {batchResult.failed_count} من أصل {batchResult.requested_count}</p></div><span className={`state-badge ${batchResult.state === 'completed' ? 'state-on' : 'state-off'}`}><i />{batchResult.state === 'completed' ? 'مكتملة' : batchResult.state === 'partial' ? 'جزئية' : 'تحتاج مراجعة'}</span><button className="button button-quiet compact-button" onClick={() => void printBatch()} disabled={!batchResult.succeeded_count}><Printer size={14}/> طباعة الناجح</button></div><div className="generated-credentials">{batchResult.vouchers.filter((item) => item.state === 'active').map((item) => <div className="credential-row" key={item.id}><strong>{item.username}</strong><code>{item.password || 'مشفّرة — استخدم عرض بيانات القسيمة'}</code><CheckCircle2 size={15} /></div>)}{batchResult.vouchers.filter((item) => item.state === 'failed').map((item) => <div className="credential-failure" key={item.id}><strong>{item.username}</strong><span>{item.error || 'لم يؤكد الراوتر إنشاء هذا المستخدم.'}</span></div>)}{!batchResult.succeeded_count && <p className="muted-empty">لم تنجح أي قسيمة؛ راجع تفاصيل الفشل أعلاه قبل إعادة المحاولة.</p>}</div><small className="result-disclaimer"><LockKeyhole size={12} /> تُعرض كلمات المرور الآن فقط. ويمكن استعادتها لاحقاً من السجل المحلي بعد التحقق من الصلاحية.</small></section>}
         {batchResult && batchResult.succeeded_count > 0 && <VoucherPrintSheet vouchers={batchResult.vouchers.filter((item) => item.state === 'active')} document={printDocument} packageName={batchPrintInfo?.packageName ?? ''} validity={batchPrintInfo?.validity ?? ''} />}
         {error && <div className="inline-error page-error"><AlertCircle size={16} />{error}</div>}
         <div className="voucher-stats"><div className="mini-stat"><span className="mini-stat-icon blue"><Users size={17} /></span><span><small>مستخدمو HotSpot</small><strong>{users.length}</strong></span></div><div className="mini-stat"><span className="mini-stat-icon green"><PackageCheck size={17} /></span><span><small>ملفات الخدمة</small><strong>{profiles.length}</strong></span></div><div className="mini-stat"><span className="mini-stat-icon amber"><Activity size={17} /></span><span><small>حالة القراءة</small><strong className="small-stat-value">{loading ? 'جارٍ التحديث' : 'آخر قراءة ناجحة'}</strong></span></div></div>
-        {managed.length > 0 && <section className="surface table-panel managed-table"><div className="table-heading"><div><h3>القسائم المُدارة محلياً</h3><p>كلمات المرور مشفرة في قاعدة البيانات؛ إظهارها مؤقت لمدة 30 ثانية.</p></div><span className="profile-count">{managed.length} من آخر 200</span></div><div className="table-scroll"><table><thead><tr><th>اسم المستخدم</th><th>الباقة</th><th>المخزون لدى</th><th>الحالة</th><th>إجراء آمن</th></tr></thead><tbody>{managed.map((item) => <tr key={item.id}><td><strong>{item.username}</strong></td><td>{item.package}</td><td>{item.owner}</td><td><span className={`state-badge ${item.state === 'active' ? 'state-on' : 'state-off'}`}><i />{item.state === 'active' ? 'نشطة' : item.state === 'disabled' ? 'معطلة' : item.state === 'failed' ? 'فشلت' : item.state}</span></td><td className="managed-actions">{revealed[item.id] ? <code>{revealed[item.id]}</code> : <button className="text-button" onClick={() => void revealCredentials(item.id)}><Eye size={14} /> كلمة المرور</button>}{item.state === 'active' && <button className="disable-link" onClick={() => void disableVoucher(item.id,item.username)}>تعطيل</button>}</td></tr>)}</tbody></table></div></section>}
-        <section className="surface table-panel"><div className="table-heading"><div><h3>مستخدمي الراوتر</h3><p>كلمات المرور لا تُقرأ أو تُعرض في هذه القائمة.</p></div><label className="search-box"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="بحث بالاسم أو الملف" /></label></div>{loading ? <div className="table-empty"><LoaderCircle className="spin" size={20} /> جارٍ قراءة الراوتر…</div> : visibleUsers.length ? <div className="table-scroll"><table><thead><tr><th>اسم المستخدم</th><th>ملف الخدمة</th><th>الخادم</th><th>الحالة</th></tr></thead><tbody>{visibleUsers.map((user) => <tr key={user.id || user.name}><td><span className="user-cell"><span className="user-table-avatar">{user.name.slice(0, 1).toUpperCase()}</span><strong>{user.name}</strong></span></td><td><span className="profile-badge">{user.profile || '—'}</span></td><td>{user.server || 'الافتراضي'}</td><td><span className={`state-badge ${user.disabled ? 'state-off' : 'state-on'}`}><i />{user.disabled ? 'معطّل' : 'مفعّل'}</span></td></tr>)}</tbody></table></div> : <div className="table-empty"><div className="empty-icon"><Users size={18} /></div>{query ? 'لا توجد نتائج تطابق البحث.' : 'لم تُرجع قراءة الراوتر مستخدمين.'}</div>}</section>
+        {(managedTotal > 0 || query) && <section className="surface table-panel managed-table"><div className="table-heading"><div><h3>القسائم المُدارة محلياً</h3><p>كلمات المرور مشفرة في قاعدة البيانات؛ إظهارها مؤقت لمدة 30 ثانية.</p></div><span className="profile-count">{managed.length} من {managedTotal} قسيمة</span></div><div className="table-scroll"><table><thead><tr><th>اسم المستخدم</th><th>الباقة</th><th>المخزون لدى</th><th>الحالة</th><th>إجراء آمن</th></tr></thead><tbody>{visibleManaged.length ? pagedManaged.map((item) => <tr key={item.id}><td><strong>{item.username}</strong>{item.failure_reason&&<small className="failure-hint">{item.failure_reason}</small>}</td><td>{item.package}</td><td>{item.owner}</td><td><span className={`state-badge ${item.state === 'active' ? 'state-on' : 'state-off'}`}><i />{item.state === 'active' ? 'نشطة' : item.state === 'disabled' ? 'معطلة' : item.state === 'failed' ? 'فشلت' : item.state}</span></td><td className="managed-actions">{revealed[item.id] ? <code>{revealed[item.id]}</code> : <button className="text-button" onClick={() => void revealCredentials(item.id)}><Eye size={14} /> كلمة المرور</button>}{item.state === 'active' && <button className="disable-link" onClick={() => void disableVoucher(item.id,item.username)}>تعطيل</button>}</td></tr>) : <tr><td colSpan={5} className="table-empty">لا توجد قسائم تطابق البحث.</td></tr>}</tbody></table></div><TablePagination page={managedPage} pageSize={tablePageSize} total={managedTotal} onPage={setManagedPage} onPageSize={(size)=>{setTablePageSize(size);setManagedPage(0);setUsersPage(0);}} label="قسيمة" /></section>}
+        <section className="surface table-panel"><div className="table-heading"><div><h3>مستخدمي الراوتر</h3><p>كلمات المرور لا تُقرأ أو تُعرض في هذه القائمة.</p></div><label className="search-box"><Search size={16} /><input value={query} onChange={(e) => {setQuery(e.target.value);setUsersPage(0);setManagedPage(0);}} placeholder="بحث بالاسم أو الملف" /></label></div>{loading ? <div className="table-empty"><LoaderCircle className="spin" size={20} /> جارٍ قراءة الراوتر…</div> : visibleUsers.length ? <><div className="table-scroll"><table><thead><tr><th>اسم المستخدم</th><th>ملف الخدمة</th><th>الخادم</th><th>الحالة</th></tr></thead><tbody>{pagedUsers.map((user) => <tr key={user.id || user.name}><td><span className="user-cell"><span className="user-table-avatar">{user.name.slice(0, 1).toUpperCase()}</span><strong>{user.name}</strong></span></td><td><span className="profile-badge">{user.profile || '—'}</span></td><td>{user.server || 'الافتراضي'}</td><td><span className={`state-badge ${user.disabled ? 'state-off' : 'state-on'}`}><i />{user.disabled ? 'معطّل' : 'مفعّل'}</span></td></tr>)}</tbody></table></div><TablePagination page={usersPage} pageSize={tablePageSize} total={visibleUsers.length} onPage={setUsersPage} onPageSize={(size)=>{setTablePageSize(size);setUsersPage(0);setManagedPage(0);}} label="مستخدم" /></> : <div className="table-empty"><div className="empty-icon"><Users size={18} /></div>{query ? 'لا توجد نتائج تطابق البحث.' : 'لم تُرجع قراءة الراوتر مستخدمين.'}</div>}</section>
         <section className="surface profile-strip"><div className="surface-heading"><div><h3>ملفات HotSpot المقروءة</h3><p>لقطة من الراوتر النشط</p></div><span className="profile-count">{profiles.length} ملف</span></div><div className="profile-chips">{profiles.map((item) => <span key={item.id || item.name} className="profile-chip"><span />{item.name}<small>{item.shared_users ? `${item.shared_users} مستخدم` : 'HotSpot'}</small></span>)}{profiles.length === 0 && <span className="muted-empty">لا توجد ملفات متاحة.</span>}</div></section>
       </>}
     </>

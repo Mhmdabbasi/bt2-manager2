@@ -1,8 +1,8 @@
 # خطة تطوير bt2-manager2
 
-> **الحالة:** النطاق معتمد؛ المرحلة 0 مكتملة، والمرحلة 1 قيد التنفيذ (مراجعة SDK تمت، أما إثبات التشغيل فمتعذر حالياً لنقص Go/Wails وبيئات الاختبار).  
-> **تاريخ التحديث:** 27 أكتوبر 2026  
-> **المستودع المستهدف:** [`Mhmdabbasi/bt2-manager2`](https://github.com/Mhmdabbasi/bt2-manager2)  
+> **الحالة:** النطاق معتمد؛ المرحلة 0 مكتملة، والمرحلة 1 قيد التنفيذ (مراجعة SDK تمت، أما إثبات التشغيل فمتعذر حالياً لنقص Go/Wails وبيئات الاختبار).
+> **تاريخ التحديث:** 27 أكتوبر 2026
+> **المستودع المستهدف:** [`Mhmdabbasi/bt2-manager2`](https://github.com/Mhmdabbasi/bt2-manager2)
 > **مكتبة RouterOS:** [`Mhmdabbasi/routeros-api-Go`](https://github.com/Mhmdabbasi/routeros-api-Go) — تمت مراجعة الشفرة عند commit `42e5cde79ce2998ae2d8b0d652c965a121e0d156`.
 
 ## 1. لماذا هذه الخطة؟

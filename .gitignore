@@ -19,6 +19,9 @@ local-secret.key
 *.test
 *.out
 
+# Generated local trial bundle
+/bt2-manager2-local-test.zip
+
 # OS/editor noise
 .DS_Store
 Thumbs.db

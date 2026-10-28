@@ -11,7 +11,9 @@ func TestOpenAppliesMigrationsAndEnforcesForeignKeys(t *testing.T) {
 	defer st.Close()
 	var count int
 	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil { t.Fatal(err) }
-	if count != 1 { t.Fatalf("got %d migrations, want 1", count) }
+	files, err := migrationFiles.ReadDir("migrations")
+	if err != nil { t.Fatal(err) }
+	if count != len(files) { t.Fatalf("got %d applied migrations, want %d", count, len(files)) }
 	if _, err := st.DB().Exec(`INSERT INTO service_profiles(id,router_id,service_type,remote_id,name,last_seen_at) VALUES('p','missing','hotspot','r','default','now')`); err == nil {
 		t.Fatal("foreign key constraint should reject unknown router")
 	}

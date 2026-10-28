@@ -198,6 +198,26 @@ type HotspotUser struct {
 	Disabled bool  `json:"disabled"`
 }
 
+func (m *Manager) HotspotServers(ctx context.Context) ([]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.current == nil { return nil, ErrNotConnected }
+	readCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	list, err := ros.NewBaseResource(m.current.api.Client(), "/ip/hotspot").ListContext(readCtx)
+	if err != nil { return nil, fmt.Errorf("قراءة خوادم HotSpot: %w", err) }
+	seen := map[string]struct{}{}
+	servers := make([]string, 0, list.Len())
+	for _, item := range list.All() {
+		name := strings.TrimSpace(item.Get("name"))
+		if name == "" { continue }
+		if _, ok := seen[name]; ok { continue }
+		seen[name] = struct{}{}
+		servers = append(servers, name)
+	}
+	return servers, nil
+}
+
 func (m *Manager) Users(ctx context.Context) ([]HotspotUser, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -246,17 +266,24 @@ func (m *Manager) FindUser(ctx context.Context, name string) (HotspotUser, bool,
 func (m *Manager) DisableUser(ctx context.Context, id string) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.current == nil {
-		return ErrNotConnected
-	}
+	if m.current == nil { return ErrNotConnected }
 	writeCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	return ros.NewBaseResource(m.current.api.Client(), "/ip/hotspot/user").DisableContext(writeCtx, id)
 }
 
-func (m *Manager) CreateUser(ctx context.Context, name, password, profile string) (HotspotUser, error) {
-	if strings.TrimSpace(name) == "" || strings.TrimSpace(password) == "" || strings.TrimSpace(profile) == "" {
-		return HotspotUser{}, errors.New("اسم المستخدم وكلمة المرور والملف مطلوبة")
+func (m *Manager) EnableUser(ctx context.Context, id string) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.current == nil { return ErrNotConnected }
+	writeCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	return ros.NewBaseResource(m.current.api.Client(), "/ip/hotspot/user").EnableContext(writeCtx, id)
+}
+
+func (m *Manager) CreateUser(ctx context.Context, name, password, profile string, server ...string) (HotspotUser, error) {
+	if strings.TrimSpace(name) == "" || strings.TrimSpace(profile) == "" {
+		return HotspotUser{}, errors.New("اسم المستخدم وملف الخدمة مطلوبان")
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -267,7 +294,10 @@ func (m *Manager) CreateUser(ctx context.Context, name, password, profile string
 	writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	resource := ros.NewBaseResource(current.api.Client(), "/ip/hotspot/user")
-	id, err := resource.AddContext(writeCtx, map[string]string{"name": name, "password": password, "profile": profile})
+	attributes := map[string]string{"name": name, "profile": profile}
+	if password != "" { attributes["password"] = password }
+	if len(server) > 0 && strings.TrimSpace(server[0]) != "" && !strings.EqualFold(strings.TrimSpace(server[0]), "all") { attributes["server"] = strings.TrimSpace(server[0]) }
+	id, err := resource.AddContext(writeCtx, attributes)
 	if err != nil {
 		return HotspotUser{}, fmt.Errorf("إنشاء مستخدم HotSpot: %w", err)
 	}
