@@ -153,7 +153,7 @@ func validateTemplate(document cardTemplateDocument) error {
 	}
 	if document.Background == "" || !validHexColor(document.Background) { return fmt.Errorf("لون الخلفية غير صالح؛ استخدم صيغة HEX مثل #ffffff") }
 	if document.BackgroundMode != "" && document.BackgroundMode != "color" && document.BackgroundMode != "image" { return fmt.Errorf("نوع خلفية البطاقة غير صالح") }
-	if document.BackgroundFit != "" && document.BackgroundFit != "cover" && document.BackgroundFit != "contain" { return fmt.Errorf("طريقة ملاءمة صورة الخلفية غير صالحة") }
+	if document.BackgroundFit != "" && document.BackgroundFit != "cover" && document.BackgroundFit != "contain" && document.BackgroundFit != "fill" { return fmt.Errorf("طريقة ملاءمة صورة الخلفية غير صالحة") }
 	if document.BackgroundMode == "image" {
 		if err := validateBackgroundImage(document.BackgroundImage); err != nil { return err }
 	} else if document.BackgroundImage != "" {

@@ -27,8 +27,8 @@ func TestValidateTemplateBackgroundImage(t *testing.T) {
 	image := image.NewRGBA(image.Rect(0, 0, 2, 2))
 	image.Set(0, 0, color.White)
 	if err := png.Encode(&encoded, image); err != nil { t.Fatal(err) }
-	document := cardTemplateDocument{WidthMM: 51, HeightMM: 19.4, Background: "#ffffff", BackgroundMode: "image", BackgroundImage: "data:image/png;base64," + base64.StdEncoding.EncodeToString(encoded.Bytes()), PageColumns: 4, PageRows: 15}
-	if err := validateTemplate(document); err != nil { t.Fatalf("valid image rejected: %v", err) }
+	document := cardTemplateDocument{WidthMM: 51, HeightMM: 19.4, Background: "#ffffff", BackgroundMode: "image", BackgroundImage: "data:image/png;base64," + base64.StdEncoding.EncodeToString(encoded.Bytes()), PageColumns: 4, PageRows: 15, BackgroundFit: "fill"}
+	if err := validateTemplate(document); err != nil { t.Fatalf("valid image with full-card stretching rejected: %v", err) }
 	document.BackgroundImage = "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="
 	if err := validateTemplate(document); err == nil { t.Fatal("SVG background image was accepted") }
 }

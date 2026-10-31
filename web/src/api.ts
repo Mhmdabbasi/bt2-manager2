@@ -64,7 +64,7 @@ export type BatchArchiveRow = { id: string; name: string; outlet_name: string; s
 export type ArchivedBatch = BatchArchiveRow & { validity_label: string; template_version_id: string; generation_options: Record<string, unknown> };
 export type ArchivedVoucher = { id: string; username: string; password: string; state: string; error?: string };
 export type CardTemplateField = { id: string; kind: 'text'|'field'; field: 'username'|'password'|'package'|'validity'|'date'|'print_date'|'qrcode'|''; text: string; x: number; y: number; width: number; height: number; font_size: number; font_weight: string; align: 'right'|'center'|'left'; color: string };
-export type CardTemplateDocument = { width_mm: number; height_mm: number; background: string; background_mode?: 'color'|'image'; background_image?: string; background_fit?: 'cover'|'contain'; page_columns?: number; page_rows?: number; fields: CardTemplateField[] };
+export type CardTemplateDocument = { width_mm: number; height_mm: number; background: string; background_mode?: 'color'|'image'; background_image?: string; background_fit?: 'cover'|'contain'|'fill'; page_columns?: number; page_rows?: number; fields: CardTemplateField[] };
 export type CardTemplate = { id: string; version_id: string; name: string; version: number; created_at: string; service_type: 'hotspot'|'user_manager'; package_id: string; distributor_id: string; scope: 'global'|'package'|'distributor'; archived: boolean; document?: CardTemplateDocument };
 export type UserManagerSnapshot = {
   router?: RouterInfo;
