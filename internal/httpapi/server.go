@@ -81,7 +81,7 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) listRouters(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.QueryContext(r.Context(), `SELECT id,name,address,port,use_tls,last_version,last_identity,last_seen_at,created_at FROM routers ORDER BY created_at DESC`)
+	rows, err := s.db.QueryContext(r.Context(), `SELECT id,name,address,port,use_tls,username,length(credential_ciphertext)>0,last_version,last_identity,last_seen_at,created_at FROM routers ORDER BY last_seen_at DESC,created_at DESC`)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "تعذر قراءة قائمة الراوترات")
 		return
@@ -89,18 +89,19 @@ func (s *Server) listRouters(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	type routerRecord struct {
 		ID string `json:"id"`; Name string `json:"name"`; Address string `json:"address"`
-		Port int `json:"port"`; TLS bool `json:"tls"`; Version string `json:"version"`
-		Identity string `json:"identity"`; LastSeenAt string `json:"last_seen_at"`; CreatedAt string `json:"created_at"`
+		Port int `json:"port"`; TLS bool `json:"tls"`; Username string `json:"username"`; HasSavedPassword bool `json:"has_saved_password"`
+		Version string `json:"version"`; Identity string `json:"identity"`; LastSeenAt string `json:"last_seen_at"`; CreatedAt string `json:"created_at"`
 	}
 	result := make([]routerRecord, 0)
 	for rows.Next() {
 		var item routerRecord
-		var tlsEnabled int
-		if err := rows.Scan(&item.ID, &item.Name, &item.Address, &item.Port, &tlsEnabled, &item.Version, &item.Identity, &item.LastSeenAt, &item.CreatedAt); err != nil {
+		var tlsEnabled, hasPassword int
+		if err := rows.Scan(&item.ID, &item.Name, &item.Address, &item.Port, &tlsEnabled, &item.Username, &hasPassword, &item.Version, &item.Identity, &item.LastSeenAt, &item.CreatedAt); err != nil {
 			writeError(w, http.StatusInternalServerError, "تعذر قراءة سجل الراوتر")
 			return
 		}
 		item.TLS = tlsEnabled == 1
+		item.HasSavedPassword = hasPassword == 1
 		result = append(result, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -121,6 +122,28 @@ func (s *Server) connectRouter(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if s.secrets == nil { writeError(w, http.StatusInternalServerError, "التخزين الآمن لكلمة المرور غير متاح") ; return }
+	input.Address = strings.TrimSpace(input.Address)
+	input.Username = strings.TrimSpace(input.Username)
+	if input.Port == 0 {
+		if input.TLS { input.Port = 8729 } else { input.Port = 8728 }
+	}
+	var savedCiphertext []byte
+	if input.Password == "" {
+		err := s.db.QueryRowContext(r.Context(), `SELECT credential_ciphertext FROM routers WHERE address=? AND port=? AND username=?`, input.Address, input.Port, input.Username).Scan(&savedCiphertext)
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && len(savedCiphertext) == 0) {
+			writeError(w, http.StatusBadRequest, "كلمة المرور غير محفوظة لهذا الحساب؛ أدخلها للمتابعة")
+			return
+		}
+		if err != nil { writeError(w, http.StatusInternalServerError, "تعذر قراءة بيانات الاتصال المحفوظة") ; return }
+		plain, err := s.secrets.Decrypt(savedCiphertext)
+		if err != nil { writeError(w, http.StatusInternalServerError, "تعذر فك تشفير كلمة المرور المحفوظة؛ أدخلها مجدداً") ; return }
+		input.Password = string(plain)
+	} else {
+		var err error
+		savedCiphertext, err = s.secrets.Encrypt([]byte(input.Password))
+		if err != nil { writeError(w, http.StatusInternalServerError, "تعذر تشفير كلمة مرور الراوتر محلياً") ; return }
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	info, err := s.routers.Connect(ctx, input)
@@ -135,10 +158,10 @@ func (s *Server) connectRouter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err = s.db.ExecContext(ctx, `INSERT INTO routers(id,name,address,port,use_tls,last_version,last_identity,last_seen_at,created_at)
-		VALUES(?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(address,port) DO UPDATE SET name=excluded.name,use_tls=excluded.use_tls,last_version=excluded.last_version,last_identity=excluded.last_identity,last_seen_at=excluded.last_seen_at`,
-		id, info.Name, info.Address, info.Port, boolInt(info.TLS), info.Version, info.Identity, now, now)
+	_, err = s.db.ExecContext(ctx, `INSERT INTO routers(id,name,address,port,use_tls,username,credential_ciphertext,last_version,last_identity,last_seen_at,created_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(address,port) DO UPDATE SET name=excluded.name,use_tls=excluded.use_tls,username=excluded.username,credential_ciphertext=excluded.credential_ciphertext,last_version=excluded.last_version,last_identity=excluded.last_identity,last_seen_at=excluded.last_seen_at`,
+		id, info.Name, info.Address, info.Port, boolInt(info.TLS), input.Username, savedCiphertext, info.Version, info.Identity, now, now)
 	if err != nil {
 		s.routers.Disconnect()
 		log.Printf("router metadata save failed: %v", err)
@@ -333,7 +356,11 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) error {
-	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+	return decodeJSONLimit(w, r, target, 64*1024)
+}
+
+func decodeJSONLimit(w http.ResponseWriter, r *http.Request, target any, maxBytes int64) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {

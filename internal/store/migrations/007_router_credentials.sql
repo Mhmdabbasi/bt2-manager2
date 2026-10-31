@@ -1,0 +1,2 @@
+ALTER TABLE routers ADD COLUMN username TEXT NOT NULL DEFAULT '';
+ALTER TABLE routers ADD COLUMN credential_ciphertext BLOB NOT NULL DEFAULT X'';

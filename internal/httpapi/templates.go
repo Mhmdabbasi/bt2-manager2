@@ -1,10 +1,15 @@
 package httpapi
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"net/http"
 	"strings"
 	"time"
@@ -29,6 +34,11 @@ type cardTemplateDocument struct {
 	WidthMM float64 `json:"width_mm"`
 	HeightMM float64 `json:"height_mm"`
 	Background string `json:"background"`
+	BackgroundMode string `json:"background_mode,omitempty"`
+	BackgroundImage string `json:"background_image,omitempty"`
+	BackgroundFit string `json:"background_fit,omitempty"`
+	PageColumns int `json:"page_columns,omitempty"`
+	PageRows int `json:"page_rows,omitempty"`
 	Fields []cardTemplateField `json:"fields"`
 }
 
@@ -88,8 +98,10 @@ func (s *Server) getTemplateVersion(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) saveTemplate(w http.ResponseWriter, r *http.Request) {
 	var input struct { ID string `json:"id"`; Name string `json:"name"`; ServiceType string `json:"service_type"`; PackageID string `json:"package_id"`; DistributorID string `json:"distributor_id"`; Scope string `json:"scope"`; Document cardTemplateDocument `json:"document"` }
-	if err := decodeJSON(w, r, &input); err != nil { writeError(w, http.StatusBadRequest, err.Error()); return }
+	if err := decodeJSONLimit(w, r, &input, 5*1024*1024); err != nil { writeError(w, http.StatusBadRequest, err.Error()); return }
 	input.ID = strings.TrimSpace(input.ID)
+	if input.Document.Background == "" { input.Document.Background = "#ffffff" }
+	if input.Document.BackgroundMode == "" { input.Document.BackgroundMode = "color" }
 	input.Name = strings.TrimSpace(input.Name)
 	if input.Name == "" || len([]rune(input.Name)) > 100 { writeError(w, http.StatusBadRequest, "اسم القالب مطلوب ويجب ألا يتجاوز 100 حرف"); return }
 	input.ServiceType=strings.TrimSpace(input.ServiceType); if input.ServiceType=="" { input.ServiceType="hotspot" }
@@ -104,7 +116,7 @@ func (s *Server) saveTemplate(w http.ResponseWriter, r *http.Request) {
 	if err := validateTemplate(input.Document); err != nil { writeError(w, http.StatusBadRequest, err.Error()); return }
 	document, err := json.Marshal(input.Document)
 	if err != nil { writeError(w, http.StatusBadRequest, "تعذر ترميز تصميم القالب"); return }
-	if len(document) > 128*1024 { writeError(w, http.StatusRequestEntityTooLarge, "حجم تصميم القالب تجاوز الحد"); return }
+	if len(document) > 4*1024*1024 { writeError(w, http.StatusRequestEntityTooLarge, "حجم تصميم القالب تجاوز الحد (4 ميغابايت)"); return }
 	id, version := input.ID, 1
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	tx, err := s.db.BeginTx(r.Context(), nil)
@@ -132,9 +144,21 @@ func (s *Server) archiveTemplate(w http.ResponseWriter,r *http.Request) {
 }
 
 func validateTemplate(document cardTemplateDocument) error {
-	if document.WidthMM < 20 || document.WidthMM > 100 || document.HeightMM < 10 || document.HeightMM > 60 { return fmt.Errorf("أبعاد البطاقة يجب أن تكون بين 20–100 مم عرضاً و10–60 مم ارتفاعاً") }
-	if document.Background == "" { document.Background = "#ffffff" }
-	if !validHexColor(document.Background) { return fmt.Errorf("لون الخلفية غير صالح؛ استخدم صيغة HEX مثل #ffffff") }
+	if document.PageColumns == 0 && document.PageRows == 0 {
+		if document.WidthMM < 20 || document.WidthMM > 100 || document.HeightMM < 10 || document.HeightMM > 60 { return fmt.Errorf("أبعاد البطاقة القديمة يجب أن تكون بين 20–100 مم عرضاً و10–60 مم ارتفاعاً") }
+	} else {
+		if document.PageColumns < 1 || document.PageColumns > 10 || document.PageRows < 1 || document.PageRows > 29 { return fmt.Errorf("توزيع A4 يجب أن يكون من 1 إلى 10 أعمدة ومن 1 إلى 29 صفاً") }
+		width, height := 204/float64(document.PageColumns), 291/float64(document.PageRows)
+		if document.WidthMM < 20 || document.WidthMM > 204 || document.HeightMM < 10 || document.HeightMM > 291 || absFloat(document.WidthMM-width) > 0.05 || absFloat(document.HeightMM-height) > 0.05 { return fmt.Errorf("مقاس البطاقة لا يطابق تقسيم مساحة A4 حسب الأعمدة والصفوف") }
+	}
+	if document.Background == "" || !validHexColor(document.Background) { return fmt.Errorf("لون الخلفية غير صالح؛ استخدم صيغة HEX مثل #ffffff") }
+	if document.BackgroundMode != "" && document.BackgroundMode != "color" && document.BackgroundMode != "image" { return fmt.Errorf("نوع خلفية البطاقة غير صالح") }
+	if document.BackgroundFit != "" && document.BackgroundFit != "cover" && document.BackgroundFit != "contain" { return fmt.Errorf("طريقة ملاءمة صورة الخلفية غير صالحة") }
+	if document.BackgroundMode == "image" {
+		if err := validateBackgroundImage(document.BackgroundImage); err != nil { return err }
+	} else if document.BackgroundImage != "" {
+		if err := validateBackgroundImage(document.BackgroundImage); err != nil { return err }
+	}
 	if len(document.Fields) > 32 { return fmt.Errorf("القالب يدعم حتى 32 عنصراً") }
 	seen := map[string]struct{}{}
 	for _, field := range document.Fields {
@@ -156,4 +180,20 @@ func validHexColor(value string) bool {
 	if len(value) != 7 || value[0] != '#' { return false }
 	for _, r := range value[1:] { if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) { return false } }
 	return true
+}
+
+func absFloat(value float64) float64 { if value < 0 { return -value }; return value }
+
+func validateBackgroundImage(value string) error {
+	if len(value) > 4*1024*1024 { return fmt.Errorf("صورة الخلفية تتجاوز 3 ميغابايت بعد الضغط") }
+	parts := strings.SplitN(value, ",", 2)
+	if len(parts) != 2 || !strings.HasSuffix(parts[0], ";base64") { return fmt.Errorf("صيغة صورة الخلفية غير صالحة") }
+	mediaType := strings.TrimSuffix(strings.TrimPrefix(parts[0], "data:"), ";base64")
+	if mediaType != "image/jpeg" && mediaType != "image/png" { return fmt.Errorf("استخدم صورة PNG أو JPEG فقط") }
+	data, err := base64.StdEncoding.DecodeString(parts[1])
+	if err != nil || len(data) == 0 || len(data) > 3*1024*1024 { return fmt.Errorf("تعذر قراءة الصورة أو تجاوزت حد 3 ميغابايت") }
+	config, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || (format == "jpeg" && mediaType != "image/jpeg") || (format == "png" && mediaType != "image/png") || (format != "jpeg" && format != "png") { return fmt.Errorf("ملف صورة الخلفية تالف أو تنسيقه غير مدعوم") }
+	if config.Width < 1 || config.Height < 1 || config.Width > 4096 || config.Height > 4096 { return fmt.Errorf("أبعاد صورة الخلفية خارج الحد المسموح") }
+	return nil
 }
