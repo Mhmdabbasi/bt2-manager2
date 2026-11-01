@@ -322,3 +322,67 @@ html[data-theme="dark"] .template-scope-fields select { color:#d1dfdc; backgroun
 .preview-field { z-index:1; }
 .background-fit-select { display:flex; flex-direction:column; gap:3px; min-width:190px; color:#718780; font-size:9px; }
 .background-fit-select select { height:30px!important; padding:0 7px!important; font-size:9px!important; }
+
+/* User Manager's read-only catalog keeps service definitions, limits and links distinct. */
+.um-browser { overflow: hidden; padding: 0; }
+.um-browser-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; border-bottom: 1px solid #edf2f0; }
+.um-tabs { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.um-tab { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px; border: 1px solid transparent; border-radius: 8px; color: #718481; background: transparent; font-size: 11px; font-weight: 700; }
+.um-tab:hover { color: #1b7669; background: #f2f8f5; }
+.um-tab-active { color: #146f64; background: #eaf6f1; border-color: #d8eee4; }
+.um-tab small { min-width: 20px; padding: 2px 5px; border-radius: 10px; color: #64817a; background: rgba(77,149,123,.12); font-size: 9px; text-align: center; }
+.um-search { display: flex; align-items: center; gap: 8px; width: min(100%, 330px); min-height: 37px; padding: 0 10px; color: #81918e; background: #f8faf9; border: 1px solid #e8eeeb; border-radius: 8px; }
+.um-search input { width: 100%; min-width: 0; border: 0; outline: 0; color: #314c48; background: transparent; font-size: 11px; }
+.um-search input::placeholder { color: #a1afab; }
+.um-search select { width: 100%; min-width: 95px; border: 0; outline: 0; color: #314c48; background: transparent; font-size: 10px; }
+.origin-filter { width: auto; min-width: 165px; }
+.origin-filter > span { flex: 0 0 auto; color: #85938f; font-size: 9px; }
+.um-users-table td:nth-child(1), .um-users-table td:nth-child(3), .um-users-table td:nth-child(4), .um-users-table td:nth-child(6) { white-space: normal; min-width: 145px; max-width: 280px; }
+.table-subline { display: block; margin-top: 4px; color: #92a09c; font-size: 9px; line-height: 1.55; white-space: normal; }
+.state-warn { color: #8a7448; background: #fff7e8; }
+.state-warn i { background: #d6ae5b; }
+html[data-theme="dark"] .um-search select { color: #d5e0de; }
+html[data-theme="dark"] .origin-filter > span, html[data-theme="dark"] .table-subline { color: #9aadaa; }
+html[data-theme="dark"] .state-warn { color: #e6ce91; background: #383225; }
+.um-data-list,.um-relationship-list { display: grid; gap: 9px; padding: 14px; }
+.um-data-card { min-width: 0; padding: 12px 13px; background: #fff; border: 1px solid #edf1ef; border-radius: 10px; }
+.um-data-card-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.um-data-card-title { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; color: #36524d; font-size: 12px; }
+.um-data-card-title code,.um-relation-endpoint code { color: #93a19d; font-size: 9px; overflow-wrap: anywhere; }
+.um-properties { margin: 9px 0 0; color: #778984; font-size: 10px; line-height: 1.8; overflow-wrap: anywhere; }
+.um-related { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid #f0f3f1; }
+.um-related > small { color: #84938f; font-size: 9px; font-weight: 700; }
+.um-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.um-chip { padding: 4px 8px; color: #397665; background: #eef8f3; border: 1px solid #e2f0e8; border-radius: 14px; font-size: 9px; }
+.um-chip-missing { color: #a35a4d; background: #fff4f1; border-color: #f6e2dc; }
+.um-no-related { color: #9aa6a2; font-size: 9px; }
+.um-relationship-card { display: grid; grid-template-columns: minmax(120px,1fr) 22px minmax(120px,1fr) auto auto; align-items: center; gap: 10px; padding: 12px; background: #fff; border: 1px solid #edf1ef; border-radius: 10px; }
+.um-relationship-card > svg { color: #77a995; }
+.um-relation-endpoint { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.um-relation-endpoint small { color: #899793; font-size: 9px; }
+.um-relation-endpoint strong { color: #45625b; font-size: 11px; overflow-wrap: anywhere; }
+.um-relationship-card .um-properties { grid-column: 1/-1; margin-top: 0; }
+.um-loading { display: flex; align-items: center; gap: 7px; padding: 0 16px 12px; color: #79908a; font-size: 10px; }
+html[data-theme="dark"] .um-browser-toolbar { border-color: #2b3d40; }
+html[data-theme="dark"] .um-tab { color: #b4c7c1; }
+html[data-theme="dark"] .um-tab-active { color: #a6e3c8; background: #243b35; border-color: #35564a; }
+html[data-theme="dark"] .um-search, html[data-theme="dark"] .um-data-card, html[data-theme="dark"] .um-relationship-card { color: #d5e0de; background: #202f32; border-color: #35494c; }
+html[data-theme="dark"] .um-search input, html[data-theme="dark"] .um-data-card-title, html[data-theme="dark"] .um-relation-endpoint strong { color: #d5e0de; }
+html[data-theme="dark"] .um-related { border-color: #2b3d40; }
+html[data-theme="dark"] .um-chip { color: #a6ddc5; background: #243834; border-color: #35564a; }
+html[data-theme="dark"] .um-chip-missing { color: #edb1a5; background: #3b2b2a; border-color: #573d3a; }
+@media (max-width: 700px) {
+  .um-browser-toolbar { align-items: stretch; flex-direction: column; }
+  .um-search { width: 100%; }
+  .um-tabs { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .um-tab { justify-content: center; padding: 0 7px; }
+  .um-data-card-heading { align-items: flex-start; flex-wrap: wrap; }
+  .um-data-card-title { min-width: calc(100% - 110px); }
+  .um-relationship-card { grid-template-columns: minmax(0,1fr) 18px minmax(0,1fr); }
+  .um-relationship-card .profile-count,.um-relationship-card .state-badge { grid-column: span 1; justify-self: start; }
+}
+.um-snapshot-notice { display: flex; align-items: flex-start; gap: 8px; margin: 13px 14px 0; padding: 10px 12px; color: #8b7140; background: #fff9ec; border: 1px solid #f3e8ca; border-radius: 8px; font-size: 10px; line-height: 1.7; }
+.um-snapshot-notice svg { flex: 0 0 auto; margin-top: 2px; }
+html[data-theme="dark"] .um-snapshot-notice { color: #e4cf9d; background: #383225; border-color: #554a33; }
+html[data-theme="dark"] .package-copy .package-source-present { color: #76d2a1; }
+html[data-theme="dark"] .package-copy .package-source-missing { color: #e6ac75; }

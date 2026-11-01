@@ -325,6 +325,99 @@ func (m *Manager) UserManagerSnapshot(ctx context.Context) (usermanager.Snapshot
 	return usermanager.ReadSnapshot(readCtx, m.current.api, m.current.info.Version)
 }
 
+func (m *Manager) UserManagerUsers(ctx context.Context) (usermanager.UserDirectory, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.current == nil {
+		return usermanager.UserDirectory{}, ErrNotConnected
+	}
+	readCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
+	defer cancel()
+	return usermanager.ReadUsers(readCtx, m.current.api, m.current.info.Version)
+}
+
+func (m *Manager) UserManagerSessions(ctx context.Context) (usermanager.SessionSnapshot, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.current == nil {
+		return usermanager.SessionSnapshot{}, ErrNotConnected
+	}
+	readCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
+	defer cancel()
+	return usermanager.ReadSessions(readCtx, m.current.api, m.current.info.Version)
+}
+
+type HotspotSession struct {
+	ID        string `json:"id"`
+	User      string `json:"user"`
+	Server    string `json:"server,omitempty"`
+	Address   string `json:"address,omitempty"`
+	MAC       string `json:"mac,omitempty"`
+	LoginBy   string `json:"login_by,omitempty"`
+	Uptime    string `json:"uptime,omitempty"`
+	BytesIn   string `json:"bytes_in,omitempty"`
+	BytesOut  string `json:"bytes_out,omitempty"`
+	Active    bool   `json:"active"`
+}
+
+func (m *Manager) HotspotSessions(ctx context.Context) ([]HotspotSession, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.current == nil {
+		return nil, ErrNotConnected
+	}
+	readCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	list, err := ros.NewBaseResource(m.current.api.Client(), "/ip/hotspot/active").ListContext(readCtx)
+	if err != nil {
+		return nil, fmt.Errorf("قراءة جلسات HotSpot النشطة: %w", err)
+	}
+	items := list.All()
+	result := make([]HotspotSession, 0, len(items))
+	for _, item := range items {
+		result = append(result, HotspotSession{
+			ID: item.ID, User: item.Get("user"), Server: item.Get("server"),
+			Address: item.Get("address"), MAC: item.Get("mac-address"), LoginBy: item.Get("login-by"),
+			Uptime: item.Get("uptime"), BytesIn: item.Get("bytes-in"), BytesOut: item.Get("bytes-out"), Active: true,
+		})
+	}
+	return result, nil
+}
+
+var ErrHotspotSessionNotActive = errors.New("HotSpot session is not active")
+
+func (m *Manager) TerminateHotspotSession(ctx context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ErrHotspotSessionNotActive
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.current == nil {
+		return ErrNotConnected
+	}
+	writeCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	list, err := ros.NewBaseResource(m.current.api.Client(), "/ip/hotspot/active").ListContext(writeCtx)
+	if err != nil {
+		return fmt.Errorf("إعادة التحقق من جلسة HotSpot: %w", err)
+	}
+	found := false
+	for _, item := range list.All() {
+		if item.ID == id {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return ErrHotspotSessionNotActive
+	}
+	if err := ros.NewBaseResource(m.current.api.Client(), "/ip/hotspot/active").DeleteContext(writeCtx, id); err != nil {
+		return fmt.Errorf("إنهاء جلسة HotSpot: %w", err)
+	}
+	return nil
+}
+
 func ParseMajorVersion(version string) (int, error) {
 	version = strings.TrimSpace(version)
 	if version == "" {

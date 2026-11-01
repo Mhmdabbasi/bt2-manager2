@@ -7,14 +7,14 @@ import {
   Wifi, WifiOff, X, Zap,
 } from 'lucide-react';
 import { api, type HotspotProfile, type HotspotUser, type RouterInfo, type RouterRecord } from './api';
-import { DistributorsPage, InventoryPage, PackagesPage, StudioPage, UserManagerPage } from './Modules';
+import { DistributorsPage, InventoryPage, PackagesPage, SessionsPage, StudioPage, UserManagerPage, UserManagerUsersPage } from './Modules';
 import { BackupPage } from './BackupPage';
 import { BatchArchivePage } from './BatchArchivePage';
 import { VoucherPrintSheet } from './VoucherPrintSheet';
 import { CardPreview, DEFAULT_CARD_TEMPLATE } from './CardPreview';
 import { TablePagination } from './TablePagination';
 
-type Page = 'overview' | 'routers' | 'packages' | 'vouchers' | 'batch_archive' | 'usermanager' | 'studio' | 'distributors' | 'inventory' | 'backup';
+type Page = 'overview' | 'routers' | 'packages' | 'vouchers' | 'batch_archive' | 'usermanager_profiles' | 'usermanager_users' | 'sessions' | 'studio' | 'distributors' | 'inventory' | 'backup';
 
 const pageTitles: Record<Page, { title: string; eyebrow: string }> = {
   overview: { title: 'نظرة عامة', eyebrow: 'لوحة التحكم' },
@@ -22,7 +22,9 @@ const pageTitles: Record<Page, { title: string; eyebrow: string }> = {
   packages: { title: 'الباقات', eyebrow: 'كتالوج الخدمة' },
   vouchers: { title: 'القسائم والمستخدمون', eyebrow: 'HotSpot' },
   batch_archive: { title: 'أرشيف دفع القسائم', eyebrow: 'سجل الدفعات' },
-  usermanager: { title: 'User Manager', eyebrow: 'مزامنة قراءة فقط' },
+  usermanager_profiles: { title: 'Profiles والقيود', eyebrow: 'User Manager · قراءة فقط' },
+  usermanager_users: { title: 'المستخدمون', eyebrow: 'User Manager · قراءة فقط' },
+  sessions: { title: 'الجلسات', eyebrow: 'مراقبة الاتصال' },
   studio: { title: 'استوديو البطاقات', eyebrow: 'التصميم والطباعة' },
   distributors: { title: 'الموزعون', eyebrow: 'شبكة التوزيع' },
   inventory: { title: 'المخزون والتخصيص', eyebrow: 'حركة المخزون' },
@@ -150,11 +152,17 @@ function App() {
           <NavItem active={page === 'overview'} icon={<LayoutDashboard size={18} />} label="نظرة عامة" onClick={() => go('overview')} />
           <NavItem active={page === 'routers'} icon={<Router size={18} />} label="الراوترات" badge={router ? 'متصل' : undefined} onClick={() => go('routers')} />
 
-          <span className="nav-label nav-label-gap">إدارة HotSpot</span>
+          <span className="nav-label nav-label-gap">مصادر الخدمة</span>
+          <NavItem active={page === 'vouchers'} icon={<Wifi size={18} />} label="HotSpot · القسائم" onClick={() => go('vouchers')} />
+          <NavItem active={page === 'usermanager_profiles'} icon={<PackageCheck size={18} />} label="User Manager · Profiles" badge="قراءة فقط" onClick={() => go('usermanager_profiles')} />
+          <NavItem active={page === 'usermanager_users'} icon={<UserRound size={18} />} label="User Manager · المستخدمون" badge="قراءة فقط" onClick={() => go('usermanager_users')} />
+
+          <span className="nav-label nav-label-gap">المتابعة</span>
+          <NavItem active={page === 'sessions'} icon={<Activity size={18} />} label="الجلسات" onClick={() => go('sessions')} />
+
+          <span className="nav-label nav-label-gap">كتالوج البطاقات</span>
           <NavItem active={page === 'packages'} icon={<PackageCheck size={18} />} label="الباقات" onClick={() => go('packages')} />
-          <NavItem active={page === 'vouchers'} icon={<TicketIcon />} label="القسائم والمستخدمون" onClick={() => go('vouchers')} />
-          <NavItem active={page === 'batch_archive'} icon={<Printer size={18} />} label="أرشيف دفع القسائم" onClick={() => go('batch_archive')} />
-          <NavItem active={page === 'usermanager'} icon={<UserRound size={18} />} label="User Manager" onClick={() => go('usermanager')} />
+          <NavItem active={page === 'batch_archive'} icon={<HardDrive size={18} />} label="أرشيف الدفعات" onClick={() => go('batch_archive')} />
           <NavItem active={page === 'studio'} icon={<Printer size={18} />} label="استوديو البطاقات" onClick={() => go('studio')} />
 
           <span className="nav-label nav-label-gap">التوزيع</span>
@@ -203,7 +211,9 @@ function App() {
           {page === 'packages' && <PackagesPage connected={!!router} />}
           {page === 'vouchers' && <VouchersPage connected={!!router} />}
           {page === 'batch_archive' && <BatchArchivePage />}
-          {page === 'usermanager' && <UserManagerPage connected={!!router} />}
+          {page === 'usermanager_profiles' && <UserManagerPage connected={!!router} />}
+          {page === 'usermanager_users' && <UserManagerUsersPage connected={!!router} />}
+          {page === 'sessions' && <SessionsPage connected={!!router} />}
           {page === 'studio' && <StudioPage />}
           {page === 'distributors' && <DistributorsPage />}
           {page === 'inventory' && <InventoryPage connected={!!router} />}
@@ -215,8 +225,6 @@ function App() {
     </div>
   );
 }
-
-function TicketIcon() { return <FilePlus2 size={18} />; }
 
 function NavItem({ active, icon, label, badge, onClick }: { active: boolean; icon: ReactNode; label: string; badge?: string; onClick: () => void }) {
   return <button className={`nav-item ${active ? 'nav-active' : ''}`} onClick={onClick}>{icon}<span>{label}</span>{badge && <small>{badge}</small>}</button>;

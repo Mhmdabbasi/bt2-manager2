@@ -66,6 +66,29 @@ export type ArchivedVoucher = { id: string; username: string; password: string; 
 export type CardTemplateField = { id: string; kind: 'text'|'field'; field: 'username'|'password'|'package'|'validity'|'date'|'print_date'|'qrcode'|''; text: string; x: number; y: number; width: number; height: number; font_size: number; font_weight: string; align: 'right'|'center'|'left'; color: string };
 export type CardTemplateDocument = { width_mm: number; height_mm: number; background: string; background_mode?: 'color'|'image'; background_image?: string; background_fit?: 'cover'|'contain'|'fill'; page_columns?: number; page_rows?: number; fields: CardTemplateField[] };
 export type CardTemplate = { id: string; version_id: string; name: string; version: number; created_at: string; service_type: 'hotspot'|'user_manager'; package_id: string; distributor_id: string; scope: 'global'|'package'|'distributor'; archived: boolean; document?: CardTemplateDocument };
+export type UserManagerUser = {
+  source_id: string;
+  name: string;
+  customer?: string;
+  disabled: boolean;
+  comment?: string;
+  group?: string;
+  shared_users?: string;
+  caller_id?: string;
+  actual_profile?: string;
+  active_sessions?: string;
+  download_used?: string;
+  upload_used?: string;
+  uptime_used?: string;
+  last_seen?: string;
+  local_origin?: { package_name: string; batch_id: string; distributor_name?: string };
+};
+export type UserManagerUserProfile = { source_id: string; user: string; customer?: string; profile: string; state?: string; end_time?: string };
+export type UserManagerDirectory = { major_version: number; users: UserManagerUser[]; user_profiles: UserManagerUserProfile[]; profile_assignments_available: boolean; profile_assignments_warning?: string; local_origin_mapping_available: boolean; local_origin_mapping_warning?: string };
+export type UserManagerSession = { source_id: string; user: string; customer?: string; active: boolean; status?: string; started?: string; ended?: string; scheduled_end?: string; uptime?: string; download?: string; upload?: string; calling_station_id?: string; user_address?: string; nas_address?: string; nas_identifier?: string; nas_port_id?: string; nas_port_type?: string; last_accounting_packet?: string; terminate_cause?: string };
+export type UserManagerSessionSnapshot = { major_version: number; sessions: UserManagerSession[]; warning?: string };
+export type HotspotSession = { id: string; user: string; server?: string; address?: string; mac?: string; login_by?: string; uptime?: string; bytes_in?: string; bytes_out?: string; active: boolean };
+
 export type UserManagerSnapshot = {
   router?: RouterInfo;
   major_version?: number;
@@ -119,6 +142,10 @@ export const api = {
   saveDistributorPackagePolicy: (id: string, body: Pick<DistributorPackagePolicy, 'all_packages_enabled'|'packages'>) => request<DistributorPackagePolicy>(`/api/distributors/${encodeURIComponent(id)}/packages`, { method: 'PUT', body: JSON.stringify(body) }),
   inventory: () => request<InventoryData>('/api/inventory'),
   userManager: () => request<UserManagerSnapshot>('/api/usermanager'),
+  userManagerUsers: () => request<UserManagerDirectory>('/api/usermanager/users'),
+  userManagerSessions: () => request<UserManagerSessionSnapshot>('/api/usermanager/sessions'),
+  hotspotSessions: () => request<HotspotSession[]>('/api/hotspot/sessions'),
+  terminateHotspotSession: (id: string) => request<void>(`/api/hotspot/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   templates: () => request<CardTemplate[]>('/api/templates'),
   template: (id: string) => request<CardTemplate>(`/api/templates/${encodeURIComponent(id)}`),
   templateVersion: (id: string) => request<CardTemplate>(`/api/template-versions/${encodeURIComponent(id)}`),

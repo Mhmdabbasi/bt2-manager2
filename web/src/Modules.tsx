@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { AlertCircle, Archive, ArrowUpLeft, Boxes, CheckCircle2, Download, Eye, LoaderCircle, Network, PackageCheck, Pencil, Plus, Power, Printer, RefreshCw, Save, Settings2, ShieldCheck, Users, X } from 'lucide-react';
-import { api, type CardTemplateDocument, type CardTemplateField, type DistributorPackagePolicy } from './api';
+import { AlertCircle, Archive, ArrowUpLeft, Boxes, CheckCircle2, Clock3, Download, Eye, LoaderCircle, Network, PackageCheck, Pencil, Plus, Power, Printer, RefreshCw, Router, Save, Search, Settings2, ShieldCheck, Users, Wifi, X } from 'lucide-react';
+import { api, type CardTemplateDocument, type CardTemplateField, type DistributorPackagePolicy, type UserManagerSession } from './api';
 import { TablePagination } from './TablePagination';
 
 type Props = { connected: boolean };
@@ -138,6 +138,282 @@ export function UserManagerPage({ connected }: Props) {
         {!!snapshot?.profile_limitations.length&&<div className="relation-list"><h4>العلاقات المرتبطة</h4>{snapshot.profile_limitations.map((relation,index)=><div className="relation-row" key={`${relation.profile_source_id}-${relation.limitation_source_id}-${index}`}><span>{relation.profile_name||relation.profile_source_id}</span><ArrowUpLeft size={13}/><strong>{relation.limitation_name||relation.limitation_source_id}</strong><small>ترتيب {relation.position+1}</small></div>)}</div>}
       </section></div>
   </>;
+}
+
+type UserFilter = 'all' | 'sessions' | 'profile-active' | 'expired' | 'disabled' | 'linked' | 'unlinked';
+
+export function UserManagerUsersPage({ connected }: Props) {
+  const [directory, setDirectory] = useState<Awaited<ReturnType<typeof api.userManagerUsers>> | null>(null);
+  const [sessionSnapshot, setSessionSnapshot] = useState<Awaited<ReturnType<typeof api.userManagerSessions>> | null>(null);
+  const [profileSnapshot, setProfileSnapshot] = useState<Awaited<ReturnType<typeof api.userManager>> | null>(null);
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<UserFilter>('all');
+  const [distributor, setDistributor] = useState('all');
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [sessionWarning, setSessionWarning] = useState('');
+
+  const load = async () => {
+    if (!connected) { setDirectory(null); setSessionSnapshot(null); setProfileSnapshot(null); setError(''); return; }
+    setLoading(true); setError(''); setSessionWarning('');
+    const [usersResult, sessionsResult, profilesResult] = await Promise.allSettled([api.userManagerUsers(), api.userManagerSessions(), api.userManager()]);
+    if (usersResult.status === 'fulfilled') setDirectory(usersResult.value);
+    else { setDirectory(null); setError(usersResult.reason instanceof Error ? usersResult.reason.message : 'تعذرت قراءة مستخدمي User Manager'); }
+    if (sessionsResult.status === 'fulfilled') { setSessionSnapshot(sessionsResult.value); setSessionWarning(sessionsResult.value.warning || ''); }
+    else { setSessionSnapshot(null); setSessionWarning(sessionsResult.reason instanceof Error ? sessionsResult.reason.message : 'تعذرت قراءة جلسات User Manager؛ أعداد الجلسات غير متاحة.'); }
+    if (profilesResult.status === 'fulfilled') setProfileSnapshot(profilesResult.value);
+    else setProfileSnapshot(null);
+    setLoading(false);
+  };
+  useEffect(() => { void load(); }, [connected]);
+
+  const users = directory?.users ?? [];
+  const profiles = directory?.user_profiles ?? [];
+  const activeSessions = sessionSnapshot?.sessions.filter((item) => item.active) ?? [];
+  const activeCountFor = (name: string, known: string | undefined, customer?: string): number | null => {
+    const parsed = Number(known);
+    if (known !== undefined && known !== '' && Number.isFinite(parsed)) return parsed;
+    if (!sessionSnapshot) return null;
+    const sameNameUsers = users.filter((item) => item.name === name);
+    return activeSessions.filter((item) => item.user === name && (customer === undefined && sameNameUsers.length === 1 ? true : (item.customer || undefined) === customer)).length;
+  };
+  const assignmentsFor = (name: string, customer?: string) => {
+    const sameNameUsers = users.filter((item) => item.name === name);
+    return profiles.filter((item) => item.user === name && (customer === undefined && sameNameUsers.length === 1 ? true : (item.customer || undefined) === customer));
+  };
+  const activeAssignmentFor = (name: string, customer?: string) => assignmentsFor(name, customer).find((item) => normalizedProfileState(item.state) === 'running-active' && !isRouterDatePast(item.end_time))
+    ?? assignmentsFor(name, customer).find((item) => normalizedProfileState(item.state) === 'running' && !isRouterDatePast(item.end_time));
+  const isExpiredUser = (name: string, customer?: string) => {
+    const assigned = assignmentsFor(name, customer);
+    const hasCurrent = assigned.some((item) => ['running-active', 'running'].includes(normalizedProfileState(item.state)) && !isRouterDatePast(item.end_time));
+    return !hasCurrent && assigned.some((item) => normalizedProfileState(item.state) === 'used' || isRouterDatePast(item.end_time));
+  };
+  const hasValidProfile = (user: typeof users[number]) => !!activeAssignmentFor(user.name, user.customer) || (!!user.actual_profile && !isExpiredUser(user.name, user.customer));
+  const profileNameFor = (user: typeof users[number]) => user.actual_profile || activeAssignmentFor(user.name, user.customer)?.profile || assignmentsFor(user.name, user.customer)[0]?.profile || '';
+  const relationsForProfile = (name: string) => {
+    const profile = profileSnapshot?.profiles.find((item) => item.name === name && item.present !== false);
+    return profileSnapshot?.profile_limitations.filter((item) => item.present !== false && (item.profile_name === name || item.profile_source_id === profile?.source_id)) ?? [];
+  };
+  const quotaForProfile = (name: string) => {
+    const relations = relationsForProfile(name);
+    const limitations = profileSnapshot?.limitations ?? [];
+    return relations.map((relation) => {
+      const limitation = limitations.find((item) => item.present !== false && (item.source_id === relation.limitation_source_id || item.name === relation.limitation_name));
+      const properties = limitation?.properties ?? {};
+      const selected = ['transfer-limit', 'download-limit', 'upload-limit', 'uptime-limit'].filter((key) => properties[key]);
+      return selected.length ? `${limitation?.name ?? relation.limitation_name}: ${selected.map((key) => `${key} ${properties[key]}`).join(' · ')}` : (limitation?.name ?? relation.limitation_name ?? 'قيد مرتبط');
+    }).filter(Boolean).join(' / ');
+  };
+  const localDistributors = [...new Set(users.map((user) => user.local_origin?.distributor_name).filter((value): value is string => !!value))].sort((a, b) => a.localeCompare(b, 'ar'));
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filteredUsers = users.filter((user) => {
+    const assignedProfile = profileNameFor(user);
+    const activeCount = activeCountFor(user.name, user.active_sessions, user.customer);
+    const expired = isExpiredUser(user.name, user.customer);
+    const hasActiveProfile = hasValidProfile(user);
+    const linked = !!user.local_origin;
+    const statusMatches = filter === 'all'
+      || (filter === 'sessions' && activeCount !== null && activeCount > 0)
+      || (filter === 'profile-active' && hasActiveProfile && !expired && !user.disabled)
+      || (filter === 'expired' && expired)
+      || (filter === 'disabled' && user.disabled)
+      || (filter === 'linked' && linked)
+      || (filter === 'unlinked' && !linked);
+    const originMatches = distributor === 'all' || (distributor === '__unlinked' ? !linked : user.local_origin?.distributor_name === distributor);
+    const searchMatches = !normalizedQuery || [user.name, user.comment, user.group, user.caller_id, user.actual_profile, assignedProfile, user.local_origin?.package_name, user.local_origin?.batch_id, user.local_origin?.distributor_name]
+      .some((value) => value?.toLocaleLowerCase().includes(normalizedQuery));
+    return statusMatches && originMatches && searchMatches;
+  }).sort((a, b) => a.name.localeCompare(b.name, 'en'));
+  const pageUsers = filteredUsers.slice(page * pageSize, (page + 1) * pageSize);
+  const counts = {
+    total: users.length,
+    active: users.filter((user) => { const count = activeCountFor(user.name, user.active_sessions, user.customer); return count !== null && count > 0; }).length,
+    disabled: users.filter((user) => user.disabled).length,
+    expired: users.filter((user) => isExpiredUser(user.name, user.customer)).length,
+  };
+  const changeFilter = (value: UserFilter) => { setFilter(value); setPage(0); };
+  const userState = (user: typeof users[number]) => {
+    const count = activeCountFor(user.name, user.active_sessions, user.customer);
+    return user.disabled ? 'معطّل' : count === null ? 'النشاط غير متاح' : count > 0 ? 'له جلسة نشطة' : 'مفعّل';
+  };
+  const usageText = (user: typeof users[number]) => [user.download_used ? `تنزيل ${formatSessionBytes(user.download_used)}` : '', user.upload_used ? `رفع ${formatSessionBytes(user.upload_used)}` : '', user.uptime_used ? `وقت ${user.uptime_used}` : ''].filter(Boolean).join(' · ') || 'غير متاح من هذا الإصدار';
+
+  return <>
+    <div className="page-heading">
+      <div><div className="eyebrow"><Users size={14}/> دليل الحسابات</div><h1>مستخدمو User Manager</h1><p>قائمة قراءة فقط للمستخدمين وملفاتهم، مع إظهار بيانات الاستخدام والارتباط المحلي عند توفرها.</p></div>
+      <div className="heading-actions"><button className="button button-quiet" onClick={() => void load()} disabled={!connected || loading}><RefreshCw size={15} className={loading ? 'spin' : ''}/> تحديث القائمة</button></div>
+    </div>
+    {!connected && <div className="inline-error page-error"><AlertCircle size={16}/>اتصل بالراوتر لقراءة دليل المستخدمين. لا تنفذ هذه الصفحة أي كتابة إلى User Manager.</div>}
+    {error && <div className="inline-error page-error"><AlertCircle size={16}/>{error}</div>}
+    {sessionWarning && <div className="um-snapshot-notice"><AlertCircle size={15}/><span>{sessionWarning} {sessionSnapshot ? 'قد تكون بعض حقول بيانات الجلسات غير متاحة.' : 'سيظل عرض الحسابات متاحاً لكن مرشح النشاط قد يكون جزئياً.'}</span></div>}
+    {directory?.profile_assignments_warning && <div className="um-snapshot-notice"><AlertCircle size={15}/><span>{directory.profile_assignments_warning}</span></div>}
+    {directory?.local_origin_mapping_warning && <div className="um-snapshot-notice"><AlertCircle size={15}/><span>{directory.local_origin_mapping_warning}</span></div>}
+    <div className="readonly-banner"><ShieldCheck size={17}/><span><strong>قراءة فقط — إجراءات UM مؤجلة</strong> · كلمات المرور ومفاتيح OTP لا تُقرأ. تعطيل المستخدم وإنهاء جلسة UM وإضافة/تجديد باقة ستظل محظورة حتى اجتياز اختبار RouterOS 6 و7 على راوتر فعلي.</span></div>
+    <div className="voucher-stats">
+      <div className="mini-stat"><span className="mini-stat-icon blue"><Users size={17}/></span><span><small>الحسابات المقروءة</small><strong>{directory ? counts.total : '—'}</strong></span></div>
+      <div className="mini-stat"><span className="mini-stat-icon green"><Wifi size={17}/></span><span><small>لها جلسة نشطة</small><strong>{directory ? counts.active : '—'}</strong></span></div>
+      <div className="mini-stat"><span className="mini-stat-icon amber"><Power size={17}/></span><span><small>معطّلة</small><strong>{directory ? counts.disabled : '—'}</strong></span></div>
+      <div className="mini-stat"><span className="mini-stat-icon blue"><Clock3 size={17}/></span><span><small>ملف منتهي/مستهلك</small><strong>{directory ? counts.expired : '—'}</strong></span></div>
+    </div>
+    {directory && <div className="readonly-meta"><span>RouterOS {directory.major_version}</span><span>{directory.profile_assignments_available ? `${profiles.length} إسناد ملف` : 'إسنادات الملفات غير متاحة'}</span><span>{sessionSnapshot ? `${sessionSnapshot.sessions.length} جلسة UM مقروءة` : 'بيانات الجلسات غير متاحة'}</span><span>{profileSnapshot?.synced_at ? `قيود الملفات من مزامنة ${new Date(profileSnapshot.synced_at).toLocaleString('ar')}` : 'لا توجد لقطة محلية لحدود الملفات'}</span></div>}
+    <section className="surface um-browser">
+      <div className="um-browser-toolbar">
+        <div className="um-tabs" role="group" aria-label="مرشحات المستخدمين">
+          {([['all','الكل'],['sessions','جلسات نشطة'],['profile-active','ملف فعّال'],['expired','منتهي'],['disabled','معطّل'],['linked','مرتبط محلياً'],['unlinked','غير مرتبط']] as [UserFilter,string][]).map(([value,label]) => <button type="button" key={value} className={`um-tab ${filter === value ? 'um-tab-active' : ''}`} aria-pressed={filter === value} onClick={() => changeFilter(value)}><span>{label}</span></button>)}
+        </div>
+        <label className="um-search"><Search size={16}/><input aria-label="البحث في المستخدمين" value={query} onChange={(event) => { setQuery(event.target.value); setPage(0); }} placeholder="اسم، ملف، معرّف، موزّع…" /></label>
+        <label className="um-search origin-filter"><span>التوزيع</span><select aria-label="تصفية حسب آخر موزّع مسجل محلياً" value={distributor} disabled={!directory?.local_origin_mapping_available} onChange={(event) => { setDistributor(event.target.value); setPage(0); }}><option value="all">{directory?.local_origin_mapping_available ? 'كل السجلات' : 'بيانات التوزيع غير متاحة'}</option><option value="__unlinked">لا يوجد تخصيص مطابق</option>{localDistributors.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
+      </div>
+      {!directory && <div className="module-empty"><div className="empty-icon"><Users size={18}/></div><strong>{loading ? 'جارٍ قراءة المستخدمين…' : 'لا توجد قائمة محمّلة'}</strong><span>تُقرأ حسابات الراوتر مباشرة دون حفظ كلمات المرور محلياً.</span></div>}
+      {directory && <><div className="table-scroll"><table className="um-users-table"><thead><tr><th>المستخدم</th><th>الحالة</th><th>الملف / القيد</th><th>الاستخدام الذي أعاده الراوتر</th><th>المعرّف المرسل</th><th>التوزيع المحلي</th></tr></thead><tbody>
+        {pageUsers.map((user) => {
+          const profileName = profileNameFor(user);
+          const assignment = activeAssignmentFor(user.name, user.customer) ?? assignmentsFor(user.name, user.customer)[0];
+          const quota = quotaForProfile(profileName);
+          const activeSessionsCount = activeCountFor(user.name, user.active_sessions, user.customer);
+          const profileState = assignment?.state || (user.actual_profile ? 'الملف الفعلي' : 'غير متاح');
+          return <tr key={user.source_id}>
+            <td><strong>{user.name}</strong><small className="table-subline">{user.customer ? `عميل ${user.customer} · ` : ''}{user.comment || user.group || '—'}{user.shared_users ? ` · حد الجلسات ${user.shared_users}` : ''}</small></td>
+            <td><span className={`state-badge ${user.disabled ? 'state-off' : (activeSessionsCount === null ? 'state-warn' : activeSessionsCount > 0 ? 'state-on' : 'state-warn')}`}><i/>{userState(user)}</span><small className="table-subline">{activeSessionsCount === null ? 'عدد الجلسات غير متاح' : `${activeSessionsCount} جلسة نشطة`}</small></td>
+            <td>{profileName || 'غير متاح'}<small className="table-subline">{profileState}{assignment?.end_time ? ` · حتى ${assignment.end_time}` : ''}</small>{quota && <small className="table-subline">{quota}</small>}</td>
+            <td>{usageText(user)}</td>
+            <td dir="ltr">{user.caller_id || 'غير متاح'}{user.last_seen && <small className="table-subline" dir="auto">آخر ظهور: {user.last_seen}</small>}</td>
+            <td>{user.local_origin ? <><strong>{user.local_origin.package_name}</strong><small className="table-subline">دفعة {user.local_origin.batch_id.slice(0, 8)}{user.local_origin.distributor_name ? ` · آخر تخصيص: ${user.local_origin.distributor_name}` : ''}</small></> : directory.local_origin_mapping_available ? 'لا يوجد تطابق محلي' : 'بيانات التوزيع غير متاحة'}</td>
+          </tr>;
+        })}
+      </tbody></table></div>
+      {!filteredUsers.length && <div className="table-empty">لا توجد حسابات تطابق المرشحات الحالية.</div>}
+      <TablePagination page={page} pageSize={pageSize} total={filteredUsers.length} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(0); }} label="مستخدم" />
+      </>}
+      {loading && directory && <div className="um-loading"><LoaderCircle size={14} className="spin"/> جارٍ تحديث القائمة…</div>}
+    </section>
+  </>;
+}
+
+function normalizedProfileState(value?: string) {
+  return (value ?? '').trim().toLocaleLowerCase().replace(/[ _]+/g, '-');
+}
+
+function isRouterDatePast(value?: string) {
+  if (!value) return false;
+  const normalized = value.trim();
+  let timestamp = Date.parse(normalized);
+  if (!Number.isFinite(timestamp)) {
+    const match = normalized.match(/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/i);
+    if (match) {
+      const months: Record<string, number> = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+      timestamp = new Date(Number(match[3]), months[match[1].toLowerCase()], Number(match[2]), Number(match[4]), Number(match[5]), Number(match[6] || 0)).getTime();
+    }
+  }
+  return Number.isFinite(timestamp) && timestamp < Date.now();
+}
+
+type UnifiedSession = {
+  key: string; service: 'hotspot' | 'user_manager'; user: string; customer?: string; active: boolean; status: string;
+  started?: string; ended?: string; scheduledEnd?: string; uptime?: string; upload?: string; download?: string;
+  address?: string; identifier?: string; nas?: string; sourceID: string; profile?: string; localPackage?: string;
+};
+
+type SessionFilter = 'all' | 'active' | 'closed' | 'expired';
+
+export function SessionsPage({ connected }: Props) {
+  const [hotspot, setHotspot] = useState<Awaited<ReturnType<typeof api.hotspotSessions>>>([]);
+  const [hotspotUsers, setHotspotUsers] = useState<Awaited<ReturnType<typeof api.users>>>([]);
+  const [userManager, setUserManager] = useState<UserManagerSession[]>([]);
+  const [userDirectory, setUserDirectory] = useState<Awaited<ReturnType<typeof api.userManagerUsers>> | null>(null);
+  const [service, setService] = useState<'all' | 'hotspot' | 'user_manager'>('all');
+  const [statusFilter, setStatusFilter] = useState<SessionFilter>('all');
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
+  const [loading, setLoading] = useState(false);
+  const [terminating, setTerminating] = useState('');
+  const [hotspotError, setHotspotError] = useState('');
+  const [managerError, setManagerError] = useState('');
+  const [message, setMessage] = useState('');
+
+  const load = async () => {
+    if (!connected) { setHotspot([]); setHotspotUsers([]); setUserManager([]); setUserDirectory(null); setHotspotError(''); setManagerError(''); return; }
+    setLoading(true); setHotspotError(''); setManagerError('');
+    const [hotspotResult, hotspotUsersResult, managerResult, directoryResult] = await Promise.allSettled([api.hotspotSessions(), api.users(), api.userManagerSessions(), api.userManagerUsers()]);
+    if (hotspotResult.status === 'fulfilled') setHotspot(hotspotResult.value);
+    else { setHotspot([]); setHotspotError(hotspotResult.reason instanceof Error ? hotspotResult.reason.message : 'تعذر قراءة جلسات HotSpot'); }
+    if (hotspotUsersResult.status === 'fulfilled') setHotspotUsers(hotspotUsersResult.value);
+    else setHotspotUsers([]);
+    if (managerResult.status === 'fulfilled') { setUserManager(managerResult.value.sessions); setManagerError(managerResult.value.warning || ''); }
+    else { setUserManager([]); setManagerError(managerResult.reason instanceof Error ? managerResult.reason.message : 'تعذر قراءة جلسات User Manager'); }
+    if (directoryResult.status === 'fulfilled') setUserDirectory(directoryResult.value);
+    else { setUserDirectory(null); setManagerError((current) => [current, 'تعذر قراءة ملفات مستخدمي UM'].filter(Boolean).join(' · ')); }
+    setLoading(false);
+  };
+  useEffect(() => { void load(); }, [connected]);
+
+  const rows = useMemo<UnifiedSession[]>(() => [
+    ...hotspot.map((item) => ({ key: `hotspot:${item.id}`, service: 'hotspot' as const, user: item.user, active: true, status: 'active', uptime: item.uptime, upload: item.bytes_in, download: item.bytes_out, address: item.address, identifier: item.mac, nas: item.server ? `HotSpot ${item.server}` : 'HotSpot', sourceID: item.id, profile: hotspotUsers.find((user) => user.name === item.user)?.profile })),
+    ...userManager.map((item) => {
+      const user = userDirectory?.users.find((candidate) => candidate.name === item.user && (candidate.customer || undefined) === (item.customer || undefined));
+      const assignments = userDirectory?.user_profiles.filter((assignment) => assignment.user === item.user && (assignment.customer || undefined) === (item.customer || undefined)) ?? [];
+      const assigned = assignments.find((assignment) => normalizedProfileState(assignment.state) === 'running-active') ?? assignments.find((assignment) => normalizedProfileState(assignment.state) === 'running');
+      return { key: `user_manager:${item.source_id}`, service: 'user_manager' as const, user: item.user, customer: item.customer, active: item.active, status: item.status || (item.active ? 'active' : 'ended'), started: item.started, ended: item.ended, scheduledEnd: item.scheduled_end, uptime: item.uptime, upload: item.upload, download: item.download, address: item.user_address, identifier: item.calling_station_id, nas: [item.nas_identifier, item.nas_address, item.nas_port_id].filter(Boolean).join(' · '), sourceID: item.source_id, profile: user?.actual_profile || assigned?.profile || assignments[0]?.profile, localPackage: user?.local_origin?.package_name };
+    }),
+  ], [hotspot, hotspotUsers, userManager, userDirectory]);
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filtered = rows.filter((item) => {
+    const expired = normalizedProfileState(item.status).includes('expired');
+    const statusMatches = statusFilter === 'all' || (statusFilter === 'active' && item.active) || (statusFilter === 'closed' && !item.active) || (statusFilter === 'expired' && expired);
+    const serviceMatches = service === 'all' || service === item.service;
+    const queryMatches = !normalizedQuery || [item.user, item.status, item.address, item.identifier, item.nas, item.sourceID].some((value) => value?.toLocaleLowerCase().includes(normalizedQuery));
+    return statusMatches && serviceMatches && queryMatches;
+  });
+  const shown = filtered.slice(page * pageSize, (page + 1) * pageSize);
+  const activeTotal = rows.filter((item) => item.active).length;
+  const endSession = async (session: UnifiedSession) => {
+    if (session.service !== 'hotspot' || !session.active) return;
+    if (!window.confirm(`سيتم قطع اتصال المستخدم «${session.user}» الآن. هل تريد إنهاء جلسة HotSpot النشطة؟`)) return;
+    setTerminating(session.key); setMessage('');
+    try { await api.terminateHotspotSession(session.sourceID); setMessage(`تم إرسال طلب إنهاء جلسة ${session.user}؛ حدّث القائمة للتحقق من زوالها.`); await load(); }
+    catch (err) { setMessage(err instanceof Error ? err.message : 'تعذر إنهاء جلسة HotSpot'); }
+    finally { setTerminating(''); }
+  };
+
+  return <>
+    <div className="page-heading"><div><div className="eyebrow"><Clock3 size={14}/> مراقبة الاتصال</div><h1>الجلسات</h1><p>عرض موحّد لجلسات HotSpot الحية وسجل User Manager الذي يرسله الراوتر.</p></div><div className="heading-actions"><button className="button button-quiet" onClick={() => void load()} disabled={!connected || loading}><RefreshCw size={15} className={loading ? 'spin' : ''}/> تحديث الجلسات</button></div></div>
+    {!connected && <div className="inline-error page-error"><AlertCircle size={16}/>اتصل بالراوتر لقراءة الجلسات.</div>}
+    {message && <div className={message.startsWith('تم إرسال') ? 'success-banner' : 'inline-error page-error'}><CheckCircle2 size={16}/>{message}</div>}
+    <div className="readonly-banner"><ShieldCheck size={17}/><span>تعتمد سجلات جلسات User Manager على تفعيل Accounting على NAS. HotSpot يعرض الاتصالات النشطة فقط ولا تتوفر من هذا المسار قائمة تاريخية للجلسات المنتهية. إنهاء جلسة UM غير مفعّل حتى اجتياز اختبار التوافق على RouterOS 6 و7.</span></div>
+    {(hotspotError || managerError) && <div className="um-snapshot-notice"><AlertCircle size={15}/><span>{[hotspotError && `HotSpot: ${hotspotError}`, managerError && `User Manager: ${managerError}`].filter(Boolean).join(' · ')}</span></div>}
+    <div className="voucher-stats"><div className="mini-stat"><span className="mini-stat-icon green"><Wifi size={17}/></span><span><small>جلسات نشطة</small><strong>{connected && !hotspotError && !managerError ? activeTotal : '—'}</strong></span></div><div className="mini-stat"><span className="mini-stat-icon blue"><Router size={17}/></span><span><small>HotSpot النشطة</small><strong>{hotspotError ? '—' : hotspot.length}</strong></span></div><div className="mini-stat"><span className="mini-stat-icon amber"><Users size={17}/></span><span><small>سجلات UM</small><strong>{managerError ? '—' : userManager.length}</strong></span></div></div>
+    <section className="surface um-browser">
+      <div className="um-browser-toolbar"><div className="um-tabs" role="group" aria-label="مصدر الجلسة">{([['all','الكل'],['hotspot','HotSpot'],['user_manager','User Manager']] as ['all'|'hotspot'|'user_manager',string][]).map(([value,label]) => <button type="button" className={`um-tab ${service === value ? 'um-tab-active' : ''}`} key={value} aria-pressed={service === value} onClick={() => { setService(value); setPage(0); }}><span>{label}</span></button>)}</div><label className="um-search"><Search size={16}/><input aria-label="البحث في الجلسات" value={query} onChange={(event) => { setQuery(event.target.value); setPage(0); }} placeholder="مستخدم، MAC، IP، NAS…" /></label><label className="um-search origin-filter"><span>الحالة</span><select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as SessionFilter); setPage(0); }}><option value="all">كل الحالات</option><option value="active">نشطة</option><option value="closed">منتهية</option><option value="expired">منتهية الصلاحية</option></select></label></div>
+      {!connected && <div className="module-empty"><strong>لا يوجد راوتر متصل</strong><span>تُقرأ الجلسات مباشرةً ولا تُخزّن نسخة محلية.</span></div>}
+      {connected && <><div className="table-scroll"><table><thead><tr><th>المستخدم</th><th>الخدمة / الحالة</th><th>البدء / الانتهاء</th><th>المدة</th><th>رفع / تنزيل</th><th>معرّف العميل</th><th>IP / NAS / منفذ</th><th>الإجراء</th></tr></thead><tbody>
+        {shown.map((item) => <tr key={item.key}><td><strong>{item.user || 'غير متاح'}</strong>{item.profile && <small className="table-subline">الملف: {item.profile}{item.localPackage ? ` · الباقة: ${item.localPackage}` : ''}</small>}<small className="table-subline" dir="ltr">{item.sourceID}</small></td><td>{item.service === 'hotspot' ? 'HotSpot' : 'User Manager'}<small className="table-subline"><span className={`state-badge ${item.active ? 'state-on' : 'state-off'}`}><i/>{sessionStatusLabel(item.status, item.active)}</span></small></td><td>{item.started || 'غير متاح'}<small className="table-subline">{item.ended ? `انتهت ${item.ended}` : item.scheduledEnd ? `انتهاء/حد مجدول ${item.scheduledEnd}` : item.active ? 'قيد الاتصال' : 'وقت الانتهاء غير متاح'}</small></td><td>{item.uptime || 'غير متاح'}</td><td>{item.upload || item.download ? `${formatSessionBytes(item.upload)} / ${formatSessionBytes(item.download)}` : 'غير متاح'}</td><td dir="ltr">{item.identifier || 'غير متاح'}<small className="table-subline" dir="auto">{item.service === 'hotspot' ? 'MAC إن أعاده الراوتر' : 'Calling-Station-ID؛ قد لا يكون MAC'}</small></td><td dir="ltr">{item.address || 'غير متاح'}<small className="table-subline" dir="auto">{item.nas || 'NAS/المنفذ غير متاح'}</small></td><td>{item.service === 'hotspot' && item.active ? <button className="button button-quiet compact-button" onClick={() => void endSession(item)} disabled={terminating === item.key} title="إنهاء جلسة HotSpot النشطة">{terminating === item.key ? <LoaderCircle size={14} className="spin"/> : <Power size={14}/>} إنهاء</button> : item.service === 'user_manager' && item.active ? <button className="button button-quiet compact-button" disabled title="معطّل حتى اجتياز بوابة توافق RouterOS 6 و7"><Power size={14}/> مؤجل</button> : '—'}</td></tr>)}
+      </tbody></table></div>
+      {!filtered.length && <div className="table-empty">لا توجد جلسات تطابق المرشحات الحالية. إذا كانت جلسات UM متوقعة، تحقق من تفعيل Accounting على NAS.</div>}
+      <TablePagination page={page} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(0); }} label="جلسة" />
+      </>}
+      {loading && <div className="um-loading"><LoaderCircle size={14} className="spin"/> جارٍ تحديث الجلسات…</div>}
+    </section>
+  </>;
+}
+
+function sessionStatusLabel(status: string, active: boolean) {
+  if (active) return 'نشطة';
+  if (normalizedProfileState(status).includes('expired')) return 'منتهية الصلاحية';
+  return status ? `منتهية · ${status}` : 'منتهية';
+}
+
+function formatSessionBytes(value?: string) {
+  if (!value) return '—';
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) return value;
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let amount = bytes / 1024; let unit = 0;
+  while (amount >= 1024 && unit < units.length - 1) { amount /= 1024; unit += 1; }
+  return `${amount.toFixed(amount >= 100 ? 0 : 1)} ${units[unit]}`;
 }
 
 const A4_WIDTH_MM = 204;
