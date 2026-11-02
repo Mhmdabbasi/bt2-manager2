@@ -18,7 +18,7 @@ func (s *Server) syncUserManager(w http.ResponseWriter,r *http.Request){
 	snapshot,err:=s.routers.UserManagerSnapshot(r.Context())
 	if errors.Is(err,routerosadapter.ErrNotConnected){writeError(w,http.StatusConflict,"اتصل بالراوتر أولاً");return}
 	if errors.Is(err,usermanager.ErrUnsupportedVersion){writeError(w,http.StatusUnprocessableEntity,"إصدار RouterOS غير مدعوم لمزامنة User Manager");return}
-	if errors.Is(err,usermanager.ErrInvalidSnapshot){writeError(w,http.StatusBadGateway,"أعاد User Manager علاقات غير مكتملة أو ملتبسة؛ لم تُحدّث اللقطة المحلية");return}
+	if errors.Is(err,usermanager.ErrInvalidSnapshot){message:="أعاد User Manager علاقات غير مكتملة أو ملتبسة";if detail:=strings.TrimSpace(err.Error());detail!=""{message+=": "+detail};message+="؛ لم تُحدّث اللقطة المحلية";writeError(w,http.StatusBadGateway,message);return}
 	if err!=nil{message:="تعذرت قراءة User Manager";if detail:=strings.TrimSpace(err.Error());detail!=""{message+=": "+detail};message+=". تحقق من تثبيت الحزمة والصلاحيات؛ لم تُحدّث اللقطة المحلية.";writeError(w,http.StatusBadGateway,message);return}
 	var routerID string
 	if err:=s.db.QueryRowContext(r.Context(),`SELECT id FROM routers WHERE address=? AND port=?`,active.Address,active.Port).Scan(&routerID);err!=nil{writeError(w,http.StatusInternalServerError,"تعذر ربط المزامنة بسجل الراوتر");return}

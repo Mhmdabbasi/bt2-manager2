@@ -42,13 +42,26 @@ func TestSafePropertiesDropsSecrets(t *testing.T) {
 	}
 }
 
-func TestRelationshipResolutionRejectsAmbiguousNames(t *testing.T) {
-	profiles := []Profile{{SourceID: "1", Name: "Gold"}, {SourceID: "2", Name: "Gold"}}
-	if _, ok := matchProfile(profiles, ""); ok {
+func TestRelationshipResolutionUsesReferenceAndOwner(t *testing.T) {
+	profiles := []Profile{
+		{SourceID: "*1", Name: "Gold", Properties: map[string]string{"owner": "owner-a"}},
+		{SourceID: "*2", Name: "Gold", Properties: map[string]string{"owner": "owner-b"}},
+	}
+	if _, ok := matchProfile(profiles, "Gold", ""); ok {
 		t.Fatal("ambiguous name without owner must not be resolved")
 	}
-	if got, ok := matchProfile(profiles, "owner-b"); !ok || got.SourceID != "2" {
+	if got, ok := matchProfile(profiles, "Gold", "owner-b"); !ok || got.SourceID != "*2" {
 		t.Fatalf("owner should disambiguate: %#v %v", got, ok)
+	}
+	if got, ok := matchProfile(profiles, "*1", ""); !ok || got.SourceID != "*1" {
+		t.Fatalf("RouterOS ID reference should resolve: %#v %v", got, ok)
+	}
+}
+
+func TestLimitationRelationshipCanResolveRouterOSID(t *testing.T) {
+	limitations := []Limitation{{SourceID: "*7", Name: "Daily"}}
+	if got, ok := matchLimitation(limitations, "*7", ""); !ok || got.Name != "Daily" {
+		t.Fatalf("RouterOS ID reference should resolve: %#v %v", got, ok)
 	}
 }
 

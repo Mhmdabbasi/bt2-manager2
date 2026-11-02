@@ -76,22 +76,21 @@ func ReadSnapshot(ctx context.Context, api *ros.API, version string) (Snapshot,e
 	relationsRaw,err:=readRows(ctx,api,p.relations,p.relationProperties);if err!=nil{return Snapshot{},fmt.Errorf("read User Manager profile-limitation relationships: %w",err)}
 
 	result:=Snapshot{MajorVersion:major,Profiles:make([]Profile,0,len(profilesRaw)),Limitations:make([]Limitation,0,len(limitationsRaw)),ProfileLimitations:make([]ProfileLimitation,0,len(relationsRaw))}
-	profilesByName:=map[string][]Profile{};limitationsByName:=map[string][]Limitation{}
 	for _,row:=range profilesRaw {
 		name:=strings.TrimSpace(row["name"]);id:=sourceIdentity(row,name);if name==""||id==""{return Snapshot{},ErrInvalidSnapshot}
-		item:=Profile{SourceID:id,Name:name,Properties:safeProperties(row,p.profileProperties)};result.Profiles=append(result.Profiles,item);profilesByName[name]=append(profilesByName[name],item)
+		item:=Profile{SourceID:id,Name:name,Properties:safeProperties(row,p.profileProperties)};result.Profiles=append(result.Profiles,item)
 	}
 	for _,row:=range limitationsRaw {
 		name:=strings.TrimSpace(row["name"]);id:=sourceIdentity(row,name);if name==""||id==""{return Snapshot{},ErrInvalidSnapshot}
-		item:=Limitation{SourceID:id,Name:name,Properties:safeProperties(row,p.limitationProperties)};result.Limitations=append(result.Limitations,item);limitationsByName[name]=append(limitationsByName[name],item)
+		item:=Limitation{SourceID:id,Name:name,Properties:safeProperties(row,p.limitationProperties)};result.Limitations=append(result.Limitations,item)
 	}
 	positions:=map[string]int{}
 	for _,row:=range relationsRaw {
 		profileName:=strings.TrimSpace(row["profile"]);limitationName:=strings.TrimSpace(row["limitation"])
-		if profileName==""||limitationName==""{return Snapshot{},fmt.Errorf("%w: incomplete relationship",ErrInvalidSnapshot)}
+		if profileName==""||limitationName==""{return Snapshot{},fmt.Errorf("%w: incomplete relationship %q (profile=%q, limitation=%q)",ErrInvalidSnapshot,row[".id"],profileName,limitationName)}
 		owner:=strings.TrimSpace(row["owner"])
-		profile,ok:=matchProfile(profilesByName[profileName],owner);if !ok{return Snapshot{},fmt.Errorf("%w: profile relation is unavailable or ambiguous",ErrInvalidSnapshot)}
-		limitation,ok:=matchLimitation(limitationsByName[limitationName],owner);if !ok{return Snapshot{},fmt.Errorf("%w: limitation relation is unavailable or ambiguous",ErrInvalidSnapshot)}
+		profile,ok:=matchProfile(result.Profiles,profileName,owner);if !ok{return Snapshot{},fmt.Errorf("%w: relationship %q references profile %q (owner %q) but no unique profile matched",ErrInvalidSnapshot,row[".id"],profileName,owner)}
+		limitation,ok:=matchLimitation(result.Limitations,limitationName,owner);if !ok{return Snapshot{},fmt.Errorf("%w: relationship %q references limitation %q (owner %q) but no unique limitation matched",ErrInvalidSnapshot,row[".id"],limitationName,owner)}
 		position:=positions[profile.SourceID];positions[profile.SourceID]=position+1
 		result.ProfileLimitations=append(result.ProfileLimitations,ProfileLimitation{ProfileSourceID:profile.SourceID,ProfileName:profile.Name,LimitationSourceID:limitation.SourceID,LimitationName:limitation.Name,Position:position,Properties:safeProperties(row,p.relationProperties)})
 	}
@@ -146,5 +145,54 @@ func safeProperties(row map[string]string,propertyList string)map[string]string{
 	for _,key:=range properties{key=strings.TrimSpace(key);switch strings.ToLower(key){case "",".id","password","secret","shared-secret","otp-secret","web-private-password":continue};if value,ok:=row[key];ok{result[key]=value}}
 	return result
 }
-func matchProfile(items []Profile,owner string)(Profile,bool){if len(items)==1{return items[0],true};if owner!=""{for _,item:=range items{if item.Properties["owner"]==owner{return item,true}}};return Profile{},false}
-func matchLimitation(items []Limitation,owner string)(Limitation,bool){if len(items)==1{return items[0],true};if owner!=""{for _,item:=range items{if item.Properties["owner"]==owner{return item,true}}};return Limitation{},false}
+func matchProfile(items []Profile, reference, owner string) (Profile, bool) {
+	matches := make([]Profile, 0, len(items))
+	for _, item := range items {
+		if reference == item.Name || reference == item.SourceID {
+			matches = append(matches, item)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0], true
+	}
+	if owner != "" {
+		var match Profile
+		count := 0
+		for _, item := range matches {
+			if item.Properties["owner"] == owner {
+				match = item
+				count++
+			}
+		}
+		if count == 1 {
+			return match, true
+		}
+	}
+	return Profile{}, false
+}
+
+func matchLimitation(items []Limitation, reference, owner string) (Limitation, bool) {
+	matches := make([]Limitation, 0, len(items))
+	for _, item := range items {
+		if reference == item.Name || reference == item.SourceID {
+			matches = append(matches, item)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0], true
+	}
+	if owner != "" {
+		var match Limitation
+		count := 0
+		for _, item := range matches {
+			if item.Properties["owner"] == owner {
+				match = item
+				count++
+			}
+		}
+		if count == 1 {
+			return match, true
+		}
+	}
+	return Limitation{}, false
+}
