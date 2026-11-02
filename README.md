@@ -20,13 +20,19 @@ go run ./cmd/bt2-manager2
 
 ## بناء تطبيق Windows
 
-تحتاج Windows 10/11 وGo 1.23+ وNode.js 22+ وMicrosoft Edge WebView2 Runtime. من جذر المستودع:
+تحتاج Windows 10/11 وGo 1.23+ وNode.js 22+ وMicrosoft Edge WebView2 Runtime. لبناء نسخة سطح المكتب فقط، من جذر المستودع:
 
 ```powershell
 ./scripts/build-windows.ps1
 ```
 
-ينتج الملف `build/BT2Manager2.exe` بواجهة مضمّنة؛ لا يحتاج Node.js بعد البناء. يمكن أيضاً تشغيل خادم الويب محلياً باستخدام `./scripts/run-web.ps1`.
+لإجراء التحقق المحلي الأوسع (اختبارات Go، وvet، وبناء التطبيقين)، استخدم:
+
+```powershell
+./scripts/verify-windows.ps1
+```
+
+ينتج بناء سطح المكتب الملف `build/BT2Manager2.exe` بواجهة مضمّنة؛ لا يحتاج Node.js بعد البناء. سكربت التحقق الأوسع ينتج أيضاً خادم الويب `build/bt2-manager2-web.exe`. يمكن تشغيل خادم الويب مباشرةً باستخدام `./scripts/run-web.ps1`. خطوات اختبار الراوتر والطباعة الفعلية موثقة في [قائمة القبول المحلي](docs/LOCAL_ACCEPTANCE_CHECKLIST_AR.md) ولا يمكن استبدالها ببناء ناجح.
 
 ## الموجود حالياً
 
