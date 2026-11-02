@@ -204,11 +204,38 @@ body.printing-vouchers #root { display: none !important; }
 body.printing-vouchers > .voucher-print-sheet { display: block !important; position: static !important; inset: auto !important; visibility: visible !important; }
 .batch-wizard-form { grid-template-columns: repeat(3,minmax(0,1fr)); }
 .batch-wizard-form .field-wide { grid-column: 1 / -1; }
+.batch-stepper { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:2px 0 5px; }
+.batch-step { display:flex; align-items:center; gap:8px; min-width:0; padding:8px 10px; color:#94a49e; background:#f7faf8; border:1px solid #eaf0ed; border-radius:8px; }
+.batch-step>span { display:grid; place-items:center; width:23px; height:23px; flex:0 0 auto; color:#81928b; background:#e9efec; border-radius:50%; font-size:10px; font-weight:700; }
+.batch-step small { overflow:hidden; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
+.batch-step-current { color:#347b67; background:#eff8f3; border-color:#cce8da; }
+.batch-step-current>span,.batch-step-done>span { color:#fff; background:#3b9c79; }
+.batch-step-done { color:#63877b; }
+.batch-step-panel { display:grid; grid-column:1/-1; grid-template-columns:repeat(3,minmax(0,1fr)); align-items:end; gap:10px; }
+.batch-wizard-controls { display:flex; justify-content:space-between; gap:8px; }
+.batch-wizard-controls .button { min-width:112px; }
+.batch-summary { display:grid; gap:9px; padding:12px; background:#f7faf8; border:1px solid #e5eee9; border-radius:9px; }
+.batch-summary-heading { display:flex; flex-direction:column; gap:2px; }
+.batch-summary-heading strong { color:#47685c; font-size:11px; }
+.batch-summary-heading small,.batch-summary p { color:#879891; font-size:9px; line-height:1.6; }
+.batch-summary p { margin:0; }
+.batch-summary-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:7px; }
+.batch-summary-metrics>div { display:flex; flex-direction:column; gap:3px; min-width:0; padding:8px; background:#fff; border:1px solid #ebf0ed; border-radius:7px; }
+.batch-summary-metrics small { color:#91a099; font-size:8px; }
+.batch-summary-metrics strong { overflow-wrap:anywhere; color:#4c6b60; font-size:10px; }
 .batch-info-warning { padding: 10px 12px; color: #8d6734; background: #fff8e9; border: 1px solid #f0e2c4; border-radius: 8px; font-size: 10px; line-height: 1.7; }
 .credential-failure { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; color: #975c55; background: #fff5f3; border: 1px solid #f2dfdc; border-radius: 7px; font-size: 10px; }
 .credential-failure span { line-height: 1.6; }
 .failure-hint { display: block; margin-top: .25rem; color: #a84235; font-size: .75rem; line-height: 1.5; max-width: 22rem; }
-@media (max-width: 700px) { .batch-wizard-form { grid-template-columns: 1fr; } .batch-wizard-form .field-wide { grid-column: auto; } }
+@media (max-width: 700px) { .batch-wizard-form { grid-template-columns: 1fr; } .batch-wizard-form .field-wide { grid-column: auto; } .batch-step-panel { grid-template-columns:1fr; } .batch-stepper { gap:4px; } .batch-step { justify-content:center; padding:7px 5px; } .batch-step small { font-size:8px; } .batch-wizard-controls .button { flex:1; } .batch-summary-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+html[data-theme="dark"] .batch-step { color:#aabdb5; background:#202f2d; border-color:#354942; }
+html[data-theme="dark"] .batch-step-current { color:#a6e3c8; background:#243b35; border-color:#35564a; }
+html[data-theme="dark"] .batch-step>span { color:#c1d0ca; background:#33443f; }
+html[data-theme="dark"] .batch-step-current>span,html[data-theme="dark"] .batch-step-done>span { color:#173b33; background:#85d0ae; }
+html[data-theme="dark"] .batch-summary { background:#1e2c2c; border-color:#344744; }
+html[data-theme="dark"] .batch-summary-heading strong,html[data-theme="dark"] .batch-summary-metrics strong { color:#b1d6c4; }
+html[data-theme="dark"] .batch-summary-metrics>div { background:#253432; border-color:#354844; }
+html[data-theme="dark"] .batch-summary-heading small,html[data-theme="dark"] .batch-summary p,html[data-theme="dark"] .batch-summary-metrics small { color:#9aadaa; }
 .price-margin-note { padding: 9px 11px; color: #5f8777; background: #f2f8f4; border: 1px solid #e2eee6; border-radius: 7px; font-size: 10px; line-height: 1.6; }
 .package-advanced { padding: 10px 12px; color: #718681; background: #f8fbf9; border: 1px solid #e8efeb; border-radius: 7px; font-size: 10px; line-height: 1.7; }
 .package-advanced summary { color: #527369; cursor: pointer; font-weight: 700; }
