@@ -48,6 +48,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/hotspot/servers", s.hotspotServers)
 	s.mux.HandleFunc("GET /api/hotspot/users", s.hotspotUsers)
 	s.mux.HandleFunc("GET /api/hotspot/users/page", s.hotspotUsersPage)
+	s.mux.HandleFunc("POST /api/hotspot/users/{id}/state", s.setHotspotUserState)
 	s.mux.HandleFunc("GET /api/hotspot/sessions", s.hotspotSessions)
 	s.mux.HandleFunc("DELETE /api/hotspot/sessions/{id}", s.terminateHotspotSession)
 	s.mux.HandleFunc("GET /api/usermanager", s.savedUserManager)

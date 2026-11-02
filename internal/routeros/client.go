@@ -15,6 +15,8 @@ import (
 )
 
 var ErrNotConnected = errors.New("no active router connection")
+var ErrHotspotUserNotFound = errors.New("HotSpot user no longer exists")
+var ErrHotspotRouterChanged = errors.New("active router changed before the action")
 
 type ConnectInput struct {
 	Name     string `json:"name"`
@@ -279,6 +281,80 @@ func (m *Manager) EnableUser(ctx context.Context, id string) error {
 	writeCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	return ros.NewBaseResource(m.current.api.Client(), "/ip/hotspot/user").EnableContext(writeCtx, id)
+}
+
+// SetUserDisabled updates one HotSpot user's state only if the currently connected
+// router still matches the router displayed by the caller. The manager lock keeps
+// a concurrent reconnect from redirecting the action to another router.
+func (m *Manager) SetUserDisabled(ctx context.Context, id string, disabled bool, expectedAddress string, expectedPort int, expectedTLS bool) (HotspotUser, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	current := m.current
+	if current == nil {
+		return HotspotUser{}, ErrNotConnected
+	}
+	if current.info.Address != expectedAddress || current.info.Port != expectedPort || current.info.TLS != expectedTLS {
+		return HotspotUser{}, ErrHotspotRouterChanged
+	}
+	if strings.TrimSpace(id) == "" {
+		return HotspotUser{}, ErrHotspotUserNotFound
+	}
+
+	resource := ros.NewBaseResource(current.api.Client(), "/ip/hotspot/user")
+	readByID := func(readCtx context.Context) (HotspotUser, bool, error) {
+		list, err := resource.ListContext(readCtx)
+		if err != nil {
+			return HotspotUser{}, false, err
+		}
+		for _, item := range list.All() {
+			if item.ID == id {
+				return HotspotUser{ID: item.ID, Name: item.Get("name"), Profile: item.Get("profile"), Server: item.Get("server"), Disabled: item.Get("disabled") == "true"}, true, nil
+			}
+		}
+		return HotspotUser{}, false, nil
+	}
+
+	readCtx, cancelRead := context.WithTimeout(ctx, 8*time.Second)
+	user, found, err := readByID(readCtx)
+	cancelRead()
+	if err != nil {
+		return HotspotUser{}, fmt.Errorf("قراءة حالة مستخدم HotSpot قبل التغيير: %w", err)
+	}
+	if !found {
+		return HotspotUser{}, ErrHotspotUserNotFound
+	}
+	if user.Disabled == disabled {
+		return user, nil
+	}
+
+	writeCtx, cancelWrite := context.WithTimeout(ctx, 8*time.Second)
+	var actionErr error
+	if disabled {
+		actionErr = resource.DisableContext(writeCtx, id)
+	} else {
+		actionErr = resource.EnableContext(writeCtx, id)
+	}
+	cancelWrite()
+
+	verifyCtx, cancelVerify := context.WithTimeout(ctx, 8*time.Second)
+	verified, exists, verifyErr := readByID(verifyCtx)
+	cancelVerify()
+	if verifyErr != nil {
+		if actionErr != nil {
+			return HotspotUser{}, fmt.Errorf("نتيجة الكتابة غير مؤكدة؛ تعذر التحقق من الحالة: %w", actionErr)
+		}
+		return HotspotUser{}, fmt.Errorf("أُرسل أمر تغيير الحالة لكن تعذر التحقق منه: %w", verifyErr)
+	}
+	if !exists {
+		return HotspotUser{}, ErrHotspotUserNotFound
+	}
+	if verified.Disabled != disabled {
+		if actionErr != nil {
+			return HotspotUser{}, actionErr
+		}
+		return HotspotUser{}, errors.New("لم يؤكد الراوتر الحالة المطلوبة لمستخدم HotSpot")
+	}
+	return verified, nil
 }
 
 func (m *Manager) CreateUser(ctx context.Context, name, password, profile string, server ...string) (HotspotUser, error) {
