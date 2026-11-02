@@ -38,6 +38,7 @@ type Snapshot struct {
 	Profiles           []Profile           `json:"profiles"`
 	Limitations        []Limitation        `json:"limitations"`
 	ProfileLimitations []ProfileLimitation `json:"profile_limitations"`
+	Warnings           []string            `json:"warnings"`
 }
 
 type paths struct { profiles,limitations,relations,profileProperties,limitationProperties,relationProperties string }
@@ -75,7 +76,7 @@ func ReadSnapshot(ctx context.Context, api *ros.API, version string) (Snapshot,e
 	limitationsRaw,err:=readRows(ctx,api,p.limitations,p.limitationProperties);if err!=nil{return Snapshot{},fmt.Errorf("read User Manager limitations: %w",err)}
 	relationsRaw,err:=readRows(ctx,api,p.relations,p.relationProperties);if err!=nil{return Snapshot{},fmt.Errorf("read User Manager profile-limitation relationships: %w",err)}
 
-	result:=Snapshot{MajorVersion:major,Profiles:make([]Profile,0,len(profilesRaw)),Limitations:make([]Limitation,0,len(limitationsRaw)),ProfileLimitations:make([]ProfileLimitation,0,len(relationsRaw))}
+	result:=Snapshot{MajorVersion:major,Profiles:make([]Profile,0,len(profilesRaw)),Limitations:make([]Limitation,0,len(limitationsRaw)),ProfileLimitations:make([]ProfileLimitation,0,len(relationsRaw)),Warnings:make([]string,0)}
 	for _,row:=range profilesRaw {
 		name:=strings.TrimSpace(row["name"]);id:=sourceIdentity(row,name);if name==""||id==""{return Snapshot{},ErrInvalidSnapshot}
 		item:=Profile{SourceID:id,Name:name,Properties:safeProperties(row,p.profileProperties)};result.Profiles=append(result.Profiles,item)
@@ -84,17 +85,57 @@ func ReadSnapshot(ctx context.Context, api *ros.API, version string) (Snapshot,e
 		name:=strings.TrimSpace(row["name"]);id:=sourceIdentity(row,name);if name==""||id==""{return Snapshot{},ErrInvalidSnapshot}
 		item:=Limitation{SourceID:id,Name:name,Properties:safeProperties(row,p.limitationProperties)};result.Limitations=append(result.Limitations,item)
 	}
-	positions:=map[string]int{}
-	for _,row:=range relationsRaw {
-		profileName:=strings.TrimSpace(row["profile"]);limitationName:=strings.TrimSpace(row["limitation"])
-		if profileName==""||limitationName==""{return Snapshot{},fmt.Errorf("%w: incomplete relationship %q (profile=%q, limitation=%q)",ErrInvalidSnapshot,row[".id"],profileName,limitationName)}
-		owner:=strings.TrimSpace(row["owner"])
-		profile,ok:=matchProfile(result.Profiles,profileName,owner);if !ok{return Snapshot{},fmt.Errorf("%w: relationship %q references profile %q (owner %q) but no unique profile matched",ErrInvalidSnapshot,row[".id"],profileName,owner)}
-		limitation,ok:=matchLimitation(result.Limitations,limitationName,owner);if !ok{return Snapshot{},fmt.Errorf("%w: relationship %q references limitation %q (owner %q) but no unique limitation matched",ErrInvalidSnapshot,row[".id"],limitationName,owner)}
-		position:=positions[profile.SourceID];positions[profile.SourceID]=position+1
-		result.ProfileLimitations=append(result.ProfileLimitations,ProfileLimitation{ProfileSourceID:profile.SourceID,ProfileName:profile.Name,LimitationSourceID:limitation.SourceID,LimitationName:limitation.Name,Position:position,Properties:safeProperties(row,p.relationProperties)})
-	}
+	resolveRelationships(&result, relationsRaw, p.relationProperties)
 	return result,nil
+}
+
+func resolveRelationships(snapshot *Snapshot, rows []map[string]string, propertyList string) {
+	positions := map[string]int{}
+	linkedProfiles := map[string]bool{}
+	for _, row := range rows {
+		profileRef := strings.TrimSpace(row["profile"])
+		limitationRef := strings.TrimSpace(row["limitation"])
+		owner := strings.TrimSpace(row["owner"])
+		relationID := strings.TrimSpace(row[".id"])
+		if profileRef == "" || limitationRef == "" {
+			appendSnapshotWarning(snapshot, fmt.Sprintf("العلاقة %q غير مكتملة (profile=%q، limitation=%q) ولم تُربط.", relationID, profileRef, limitationRef))
+			continue
+		}
+		profile, ok := matchProfile(snapshot.Profiles, profileRef, owner)
+		if !ok {
+			appendSnapshotWarning(snapshot, fmt.Sprintf("العلاقة %q تشير إلى الملف %q (المالك %q) ولم يمكن مطابقته بملف واحد.", relationID, profileRef, owner))
+			continue
+		}
+		limitation, ok := matchLimitation(snapshot.Limitations, limitationRef, owner)
+		if !ok {
+			appendSnapshotWarning(snapshot, fmt.Sprintf("العلاقة %q للملف %q تشير إلى التحديد %q (المالك %q) ولم يمكن مطابقته بتحديد واحد.", relationID, profile.Name, limitationRef, owner))
+			continue
+		}
+		position := positions[profile.SourceID]
+		positions[profile.SourceID] = position + 1
+		snapshot.ProfileLimitations = append(snapshot.ProfileLimitations, ProfileLimitation{
+			ProfileSourceID: profile.SourceID, ProfileName: profile.Name,
+			LimitationSourceID: limitation.SourceID, LimitationName: limitation.Name,
+			Position: position, Properties: safeProperties(row, propertyList),
+		})
+		linkedProfiles[profile.SourceID] = true
+	}
+	for _, profile := range snapshot.Profiles {
+		if !linkedProfiles[profile.SourceID] {
+			appendSnapshotWarning(snapshot, fmt.Sprintf("الملف «%s» لا توجد له علاقة Limitation صالحة في الراوتر.", profile.Name))
+		}
+	}
+}
+
+func appendSnapshotWarning(snapshot *Snapshot, warning string) {
+	const maxWarnings = 100
+	if len(snapshot.Warnings) < maxWarnings {
+		snapshot.Warnings = append(snapshot.Warnings, warning)
+		return
+	}
+	if len(snapshot.Warnings) == maxWarnings {
+		snapshot.Warnings = append(snapshot.Warnings, "تم إخفاء بقية التحذيرات لكثرتها.")
+	}
 }
 
 func readRows(ctx context.Context, api *ros.API, command, properties string) ([]map[string]string, error) {

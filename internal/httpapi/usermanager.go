@@ -39,9 +39,10 @@ func (s *Server) syncUserManager(w http.ResponseWriter,r *http.Request){
 		id,e:=randomID();if e!=nil{writeError(w,http.StatusInternalServerError,"تعذر إنشاء سجل علاقة User Manager");return};attributes,e:=json.Marshal(relation.Properties);if e!=nil{writeError(w,http.StatusInternalServerError,"تعذر ترميز علاقة User Manager");return}
 		if _,e=tx.ExecContext(ctx,`INSERT INTO user_manager_profile_limitations(id,router_id,profile_remote_id,limitation_remote_id,position,attributes_json,present,last_seen_at) VALUES(?,?,?,?,?,?,1,?) ON CONFLICT(router_id,profile_remote_id,limitation_remote_id,position) DO UPDATE SET attributes_json=excluded.attributes_json,present=1,last_seen_at=excluded.last_seen_at`,id,routerID,"profile:"+relation.ProfileSourceID,"limitation:"+relation.LimitationSourceID,relation.Position,string(attributes),now);e!=nil{writeError(w,http.StatusInternalServerError,"تعذر حفظ علاقات User Manager؛ لم تُعتمد المزامنة");return}
 	}
-	if _,err:=tx.ExecContext(ctx,`INSERT INTO user_manager_sync_state(router_id,major_version,synced_at) VALUES(?,?,?) ON CONFLICT(router_id) DO UPDATE SET major_version=excluded.major_version,synced_at=excluded.synced_at`,routerID,snapshot.MajorVersion,now);err!=nil{writeError(w,http.StatusInternalServerError,"تعذر حفظ حالة مزامنة User Manager");return}
+	warningsJSON,err:=json.Marshal(snapshot.Warnings);if err!=nil{writeError(w,http.StatusInternalServerError,"تعذر ترميز تحذيرات User Manager");return}
+	if _,err:=tx.ExecContext(ctx,`INSERT INTO user_manager_sync_state(router_id,major_version,synced_at,warnings_json) VALUES(?,?,?,?) ON CONFLICT(router_id) DO UPDATE SET major_version=excluded.major_version,synced_at=excluded.synced_at,warnings_json=excluded.warnings_json`,routerID,snapshot.MajorVersion,now,string(warningsJSON));err!=nil{writeError(w,http.StatusInternalServerError,"تعذر حفظ حالة مزامنة User Manager");return}
 	if err:=tx.Commit();err!=nil{writeError(w,http.StatusInternalServerError,"تعذر تثبيت لقطة User Manager");return}
-	writeJSON(w,http.StatusOK,map[string]any{"router":active,"major_version":snapshot.MajorVersion,"profiles":snapshot.Profiles,"limitations":snapshot.Limitations,"profile_limitations":snapshot.ProfileLimitations,"synced_at":now})
+	writeJSON(w,http.StatusOK,map[string]any{"router":active,"major_version":snapshot.MajorVersion,"profiles":snapshot.Profiles,"limitations":snapshot.Limitations,"profile_limitations":snapshot.ProfileLimitations,"warnings":snapshot.Warnings,"synced_at":now})
 }
 
 func (s *Server) savedUserManager(w http.ResponseWriter,r *http.Request){
@@ -60,9 +61,12 @@ func (s *Server) savedUserManager(w http.ResponseWriter,r *http.Request){
 	if err:=relations.Close();err!=nil{writeError(w,http.StatusInternalServerError,"تعذر إغلاق قراءة علاقات User Manager");return}
 	var majorVersion int
 	var syncedAt string
-	stateErr:=s.db.QueryRowContext(r.Context(),`SELECT major_version,synced_at FROM user_manager_sync_state WHERE router_id=?`,routerID).Scan(&majorVersion,&syncedAt)
+	var warningsJSON string
+	stateErr:=s.db.QueryRowContext(r.Context(),`SELECT major_version,synced_at,warnings_json FROM user_manager_sync_state WHERE router_id=?`,routerID).Scan(&majorVersion,&syncedAt,&warningsJSON)
 	if stateErr!=nil&&!errors.Is(stateErr,sql.ErrNoRows){writeError(w,http.StatusInternalServerError,"تعذر قراءة حالة مزامنة User Manager");return}
-	response:=map[string]any{"profiles":profiles,"limitations":limitations,"profile_limitations":links,"router":active}
+	warnings:=make([]string,0)
+	if stateErr==nil{if err:=json.Unmarshal([]byte(warningsJSON),&warnings);err!=nil{writeError(w,http.StatusInternalServerError,"تعذر قراءة تحذيرات User Manager");return}}
+	response:=map[string]any{"profiles":profiles,"limitations":limitations,"profile_limitations":links,"warnings":warnings,"router":active}
 	if stateErr==nil{response["major_version"]=majorVersion;response["synced_at"]=syncedAt}
 	writeJSON(w,http.StatusOK,response)
 }

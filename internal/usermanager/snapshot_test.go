@@ -65,6 +65,42 @@ func TestLimitationRelationshipCanResolveRouterOSID(t *testing.T) {
 	}
 }
 
+func TestIncompleteRelationshipKeepsProfilesAndAddsWarnings(t *testing.T) {
+	snapshot := Snapshot{
+		Profiles:           []Profile{{SourceID: "*10", Name: "Gold"}},
+		Limitations:        []Limitation{{SourceID: "*20", Name: "Daily"}},
+		ProfileLimitations: make([]ProfileLimitation, 0),
+		Warnings:           make([]string, 0),
+	}
+	resolveRelationships(&snapshot, []map[string]string{{".id": "*1"}}, ".id,profile,limitation")
+	if len(snapshot.Profiles) != 1 || snapshot.Profiles[0].Name != "Gold" {
+		t.Fatalf("incomplete relationship must not discard profiles: %#v", snapshot.Profiles)
+	}
+	if len(snapshot.ProfileLimitations) != 0 {
+		t.Fatalf("incomplete relationship must not create a guessed link: %#v", snapshot.ProfileLimitations)
+	}
+	joined := strings.Join(snapshot.Warnings, " | ")
+	if !strings.Contains(joined, "*1") || !strings.Contains(joined, "Gold") || !strings.Contains(joined, "Limitation") {
+		t.Fatalf("expected relation and unlinked-profile warnings, got %q", joined)
+	}
+}
+
+func TestValidRelationshipIsKeptWithoutWarnings(t *testing.T) {
+	snapshot := Snapshot{
+		Profiles:           []Profile{{SourceID: "*10", Name: "Gold"}},
+		Limitations:        []Limitation{{SourceID: "*20", Name: "Daily"}},
+		ProfileLimitations: make([]ProfileLimitation, 0),
+		Warnings:           make([]string, 0),
+	}
+	resolveRelationships(&snapshot, []map[string]string{{".id": "*1", "profile": "*10", "limitation": "*20"}}, ".id,profile,limitation")
+	if len(snapshot.ProfileLimitations) != 1 || snapshot.ProfileLimitations[0].ProfileName != "Gold" || snapshot.ProfileLimitations[0].LimitationName != "Daily" {
+		t.Fatalf("valid relationship was not preserved: %#v", snapshot.ProfileLimitations)
+	}
+	if len(snapshot.Warnings) != 0 {
+		t.Fatalf("valid relationship should not produce warnings: %#v", snapshot.Warnings)
+	}
+}
+
 func TestParseRowsPreservesSuccessfulReplies(t *testing.T) {
 	responses := []*ros.Response{
 		{Type: ros.ResponseReply, Data: map[string]string{".id": "*1", "name": "Gold"}},

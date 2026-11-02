@@ -96,6 +96,7 @@ export type UserManagerSnapshot = {
   profiles: { source_id: string; name: string; properties: Record<string, string>; present?: boolean; last_seen_at?: string }[];
   limitations: { source_id: string; name: string; properties: Record<string, string>; present?: boolean; last_seen_at?: string }[];
   profile_limitations: { profile_source_id: string; profile_name?: string; limitation_source_id: string; limitation_name?: string; position: number; properties: Record<string, string>; present?: boolean; last_seen_at?: string }[];
+  warnings?: string[];
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

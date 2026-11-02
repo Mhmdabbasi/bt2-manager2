@@ -410,6 +410,15 @@ html[data-theme="dark"] .um-chip-missing { color: #edb1a5; background: #3b2b2a; 
 }
 .um-snapshot-notice { display: flex; align-items: flex-start; gap: 8px; margin: 13px 14px 0; padding: 10px 12px; color: #8b7140; background: #fff9ec; border: 1px solid #f3e8ca; border-radius: 8px; font-size: 10px; line-height: 1.7; }
 .um-snapshot-notice svg { flex: 0 0 auto; margin-top: 2px; }
+.um-sync-warnings { margin-bottom: 12px; }
+.um-sync-warnings>div { min-width:0; flex:1; }
+.um-sync-warnings strong { display:block; margin-bottom:4px; }
+.um-sync-warnings ul { display:grid; gap:3px; max-height:180px; overflow:auto; margin:0; padding-inline-start:18px; }
+.um-sync-warnings li { overflow-wrap:anywhere; }
+.profile-link-warning { margin-top:3px; color:#a26e32!important; font-weight:700; }
+.profile-link-ok { margin-top:3px; color:#4b8c70!important; }
+html[data-theme="dark"] .profile-link-warning { color:#e8c17e!important; }
+html[data-theme="dark"] .profile-link-ok { color:#8bd0ad!important; }
 html[data-theme="dark"] .um-snapshot-notice { color: #e4cf9d; background: #383225; border-color: #554a33; }
 html[data-theme="dark"] .package-copy .package-source-present { color: #76d2a1; }
 html[data-theme="dark"] .package-copy .package-source-missing { color: #e6ac75; }
