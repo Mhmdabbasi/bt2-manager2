@@ -79,6 +79,8 @@ type SessionSnapshot struct {
 	Warning      string    `json:"warning,omitempty"`
 }
 
+type rowReader func(context.Context, string, string) ([]map[string]string, error)
+
 type userPaths struct {
 	users, profiles, sessions                                          string
 	userProperties, userProfileProperties, userProfileFallbackProperties string
@@ -154,11 +156,8 @@ func readUsers(ctx context.Context, version string, read rowReader) (UserDirecto
 			return UserDirectory{}, fmt.Errorf("%w: duplicate User Manager user identity", ErrInvalidSnapshot)
 		}
 		seen[key] = struct{}{}
-		id := sourceIdentity(row)
-		if id == "" {
-			// Read-only identity fallback; never used as a RouterOS mutation target.
-			id = key
-		}
+		// A fallback is only a display identity and is never used as a RouterOS mutation target.
+		id := sourceIdentity(row, key)
 		result.Users = append(result.Users, User{
 			SourceID:       id,
 			Name:           name,
@@ -196,10 +195,7 @@ func readUsers(ctx context.Context, version string, read rowReader) (UserDirecto
 		if user == "" || profile == "" {
 			return UserDirectory{}, fmt.Errorf("%w: User Manager profile assignment is incomplete", ErrInvalidSnapshot)
 		}
-		id := sourceIdentity(row)
-		if id == "" {
-			id = fmt.Sprintf("%s|%s|%d", user, profile, index)
-		}
+		id := sourceIdentity(row, fmt.Sprintf("%s|%s|%d", userRecordKey(strings.TrimSpace(row["customer"]), user), profile, index))
 		if _, exists := profileIDs[id]; exists {
 			return UserDirectory{}, fmt.Errorf("%w: duplicate User Manager profile assignment ID", ErrInvalidSnapshot)
 		}
@@ -252,13 +248,11 @@ func readSessions(ctx context.Context, version string, read rowReader) (SessionS
 		started := firstValue(row, "started", "from-time")
 		ended := strings.TrimSpace(row["ended"])
 		status := strings.TrimSpace(row["status"])
-		id := sourceIdentity(row)
-		if id == "" {
-			id = firstValue(row, "acct-session-id")
+		fallbackID := firstValue(row, "acct-session-id")
+		if fallbackID == "" {
+			fallbackID = fmt.Sprintf("%s|%s|%d", userRecordKey(customer, user), started, index)
 		}
-		if id == "" {
-			id = fmt.Sprintf("%s|%s|%d", userRecordKey(customer, user), started, index)
-		}
+		id := sourceIdentity(row, fallbackID)
 		result.Sessions = append(result.Sessions, Session{
 			SourceID:         id,
 			User:             user,
