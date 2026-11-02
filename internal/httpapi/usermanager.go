@@ -19,7 +19,7 @@ func (s *Server) syncUserManager(w http.ResponseWriter,r *http.Request){
 	if errors.Is(err,routerosadapter.ErrNotConnected){writeError(w,http.StatusConflict,"اتصل بالراوتر أولاً");return}
 	if errors.Is(err,usermanager.ErrUnsupportedVersion){writeError(w,http.StatusUnprocessableEntity,"إصدار RouterOS غير مدعوم لمزامنة User Manager");return}
 	if errors.Is(err,usermanager.ErrInvalidSnapshot){writeError(w,http.StatusBadGateway,"أعاد User Manager علاقات غير مكتملة أو ملتبسة؛ لم تُحدّث اللقطة المحلية");return}
-	if err!=nil{writeError(w,http.StatusBadGateway,"تعذرت قراءة User Manager. تحقق من تثبيت الحزمة والصلاحيات؛ لم تُحدّث اللقطة المحلية.");return}
+	if err!=nil{message:="تعذرت قراءة User Manager";if detail:=strings.TrimSpace(err.Error());detail!=""{message+=": "+detail};message+=". تحقق من تثبيت الحزمة والصلاحيات؛ لم تُحدّث اللقطة المحلية.";writeError(w,http.StatusBadGateway,message);return}
 	var routerID string
 	if err:=s.db.QueryRowContext(r.Context(),`SELECT id FROM routers WHERE address=? AND port=?`,active.Address,active.Port).Scan(&routerID);err!=nil{writeError(w,http.StatusInternalServerError,"تعذر ربط المزامنة بسجل الراوتر");return}
 	ctx,cancel:=context.WithTimeout(r.Context(),10*time.Second);defer cancel()
@@ -39,6 +39,7 @@ func (s *Server) syncUserManager(w http.ResponseWriter,r *http.Request){
 		id,e:=randomID();if e!=nil{writeError(w,http.StatusInternalServerError,"تعذر إنشاء سجل علاقة User Manager");return};attributes,e:=json.Marshal(relation.Properties);if e!=nil{writeError(w,http.StatusInternalServerError,"تعذر ترميز علاقة User Manager");return}
 		if _,e=tx.ExecContext(ctx,`INSERT INTO user_manager_profile_limitations(id,router_id,profile_remote_id,limitation_remote_id,position,attributes_json,present,last_seen_at) VALUES(?,?,?,?,?,?,1,?) ON CONFLICT(router_id,profile_remote_id,limitation_remote_id,position) DO UPDATE SET attributes_json=excluded.attributes_json,present=1,last_seen_at=excluded.last_seen_at`,id,routerID,"profile:"+relation.ProfileSourceID,"limitation:"+relation.LimitationSourceID,relation.Position,string(attributes),now);e!=nil{writeError(w,http.StatusInternalServerError,"تعذر حفظ علاقات User Manager؛ لم تُعتمد المزامنة");return}
 	}
+	if _,err:=tx.ExecContext(ctx,`INSERT INTO user_manager_sync_state(router_id,major_version,synced_at) VALUES(?,?,?) ON CONFLICT(router_id) DO UPDATE SET major_version=excluded.major_version,synced_at=excluded.synced_at`,routerID,snapshot.MajorVersion,now);err!=nil{writeError(w,http.StatusInternalServerError,"تعذر حفظ حالة مزامنة User Manager");return}
 	if err:=tx.Commit();err!=nil{writeError(w,http.StatusInternalServerError,"تعذر تثبيت لقطة User Manager");return}
 	writeJSON(w,http.StatusOK,map[string]any{"router":active,"major_version":snapshot.MajorVersion,"profiles":snapshot.Profiles,"limitations":snapshot.Limitations,"profile_limitations":snapshot.ProfileLimitations,"synced_at":now})
 }
@@ -55,5 +56,13 @@ func (s *Server) savedUserManager(w http.ResponseWriter,r *http.Request){
 	relations,err:=s.db.QueryContext(r.Context(),`SELECT profile_remote_id,limitation_remote_id,position,attributes_json,present,last_seen_at FROM user_manager_profile_limitations WHERE router_id=? ORDER BY profile_remote_id,position`,routerID);if err!=nil{writeError(w,http.StatusInternalServerError,"تعذر قراءة علاقات User Manager");return};defer relations.Close()
 	type relationRecord struct{ProfileSourceID string `json:"profile_source_id"`;LimitationSourceID string `json:"limitation_source_id"`;Position int `json:"position"`;Properties json.RawMessage `json:"properties"`;Present bool `json:"present"`;LastSeenAt string `json:"last_seen_at"`};links:=make([]relationRecord,0)
 	for relations.Next(){var item relationRecord;var profile,limitation string;var present int;if err:=relations.Scan(&profile,&limitation,&item.Position,&item.Properties,&present,&item.LastSeenAt);err!=nil{writeError(w,http.StatusInternalServerError,"تعذر قراءة علاقة User Manager");return};item.ProfileSourceID=strings.TrimPrefix(profile,"profile:");item.LimitationSourceID=strings.TrimPrefix(limitation,"limitation:");item.Present=present==1;links=append(links,item)}
-	if err:=relations.Err();err!=nil{writeError(w,http.StatusInternalServerError,"تعذر قراءة علاقات User Manager");return};writeJSON(w,http.StatusOK,map[string]any{"profiles":profiles,"limitations":limitations,"profile_limitations":links,"router":active})
+	if err:=relations.Err();err!=nil{writeError(w,http.StatusInternalServerError,"تعذر قراءة علاقات User Manager");return}
+	if err:=relations.Close();err!=nil{writeError(w,http.StatusInternalServerError,"تعذر إغلاق قراءة علاقات User Manager");return}
+	var majorVersion int
+	var syncedAt string
+	stateErr:=s.db.QueryRowContext(r.Context(),`SELECT major_version,synced_at FROM user_manager_sync_state WHERE router_id=?`,routerID).Scan(&majorVersion,&syncedAt)
+	if stateErr!=nil&&!errors.Is(stateErr,sql.ErrNoRows){writeError(w,http.StatusInternalServerError,"تعذر قراءة حالة مزامنة User Manager");return}
+	response:=map[string]any{"profiles":profiles,"limitations":limitations,"profile_limitations":links,"router":active}
+	if stateErr==nil{response["major_version"]=majorVersion;response["synced_at"]=syncedAt}
+	writeJSON(w,http.StatusOK,response)
 }

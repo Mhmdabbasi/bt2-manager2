@@ -98,9 +98,43 @@ func ReadSnapshot(ctx context.Context, api *ros.API, version string) (Snapshot,e
 	return result,nil
 }
 
-func readRows(ctx context.Context,api *ros.API,command,properties string)([]map[string]string,error){
-	responses,err:=api.SendContext(ctx,command,"=.proplist="+properties);if err!=nil{return nil,err}
-	rows:=make([]map[string]string,0,len(responses));for _,response:=range responses{if response==nil||response.Type!=ros.ResponseReply||len(response.Data)==0{continue};copy:=make(map[string]string,len(response.Data));for key,value:=range response.Data{copy[key]=value};rows=append(rows,copy)};return rows,nil
+func readRows(ctx context.Context, api *ros.API, command, properties string) ([]map[string]string, error) {
+	responses, err := api.SendContext(ctx, command, "=.proplist="+properties)
+	if err != nil {
+		return nil, err
+	}
+	return parseRows(command, responses)
+}
+
+func parseRows(command string, responses []*ros.Response) ([]map[string]string, error) {
+	nonNil := make([]*ros.Response, 0, len(responses))
+	for _, response := range responses {
+		if response != nil {
+			nonNil = append(nonNil, response)
+		}
+	}
+	parser := ros.NewResponseParser(nonNil)
+	if parser.Trap() || parser.Fatal() {
+		message := strings.TrimSpace(parser.Error())
+		if message == "" {
+			message = "RouterOS returned an API error"
+		}
+		return nil, fmt.Errorf("RouterOS command %s failed: %s", command, message)
+	}
+
+	data := parser.Data()
+	rows := make([]map[string]string, 0, len(data))
+	for _, response := range data {
+		if response == nil {
+			continue
+		}
+		copy := make(map[string]string, len(response))
+		for key, value := range response {
+			copy[key] = value
+		}
+		rows = append(rows, copy)
+	}
+	return rows, nil
 }
 
 func parseMajor(version string)(int,error){

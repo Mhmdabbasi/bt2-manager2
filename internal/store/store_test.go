@@ -19,6 +19,18 @@ func TestOpenAppliesMigrationsAndEnforcesForeignKeys(t *testing.T) {
 	}
 }
 
+func TestUserManagerSyncStateStoresSuccessfulReadMetadata(t *testing.T) {
+	st, err := Open(":memory:")
+	if err != nil { t.Fatal(err) }
+	defer st.Close()
+	if _, err := st.DB().Exec(`INSERT INTO routers(id,name,address,port,created_at) VALUES('router-1','test','192.0.2.1',8728,'now')`); err != nil { t.Fatal(err) }
+	if _, err := st.DB().Exec(`INSERT INTO user_manager_sync_state(router_id,major_version,synced_at) VALUES('router-1',7,'2026-11-02T12:00:00Z')`); err != nil { t.Fatal(err) }
+	var major int
+	var syncedAt string
+	if err := st.DB().QueryRow(`SELECT major_version,synced_at FROM user_manager_sync_state WHERE router_id='router-1'`).Scan(&major,&syncedAt); err != nil { t.Fatal(err) }
+	if major != 7 || syncedAt != "2026-11-02T12:00:00Z" { t.Fatalf("got version %d at %q", major, syncedAt) }
+}
+
 func TestOpenCreatesFileAndIsIdempotent(t *testing.T) {
 	path := t.TempDir()+"/app.sqlite"
 	first, err := Open(path); if err != nil { t.Fatal(err) }; if err := first.Close(); err != nil { t.Fatal(err) }
