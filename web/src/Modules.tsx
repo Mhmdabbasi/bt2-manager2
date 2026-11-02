@@ -100,9 +100,16 @@ export function InventoryPage({ connected }: Props) {
   const [distributors, setDistributors] = useState<Awaited<ReturnType<typeof api.distributors>>>([]);
   const [selected, setSelected] = useState<string[]>([]); const [action, setAction] = useState<'allocate'|'transfer'|'return'>('allocate'); const [target, setTarget] = useState('');
   const [eventsPage, setEventsPage] = useState(0); const [eventsPageSize, setEventsPageSize] = useState(20);
+  const [eventsSearch, setEventsSearch] = useState(''); const [eventsQuery, setEventsQuery] = useState('');
+  const [eventType, setEventType] = useState('all');
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [success, setSuccess] = useState('');
-  const load = async () => { try { const [stock, page, owners] = await Promise.all([api.inventory(),api.vouchers(0,200),api.distributors()]); setSnapshot(stock); setVouchers(page.items); setDistributors(owners); setError(''); } catch (err) { setError(err instanceof Error ? err.message : 'تعذر تحميل المخزون'); } };
-  useEffect(() => { void load(); }, [connected]);
+  const inventoryRequestRef=useRef(0);
+  const loadStock = async () => { const requestID=++inventoryRequestRef.current; try { const stock=await api.inventory(eventsPage*eventsPageSize,eventsPageSize,eventsQuery,eventType); if(requestID!==inventoryRequestRef.current)return; setSnapshot(stock); setError(''); if(eventsPage>0&&eventsPage*eventsPageSize>=stock.events_total)setEventsPage(Math.max(0,Math.ceil(stock.events_total/eventsPageSize)-1)); } catch (err) { if(requestID===inventoryRequestRef.current)setError(err instanceof Error ? err.message : 'تعذر تحميل سجل المخزون'); } };
+  const loadOptions = async () => { try { const [page,owners]=await Promise.all([api.vouchers(0,200),api.distributors()]); setVouchers(page.items); setDistributors(owners); } catch (err) { setError(err instanceof Error ? err.message : 'تعذر تحميل بيانات التخصيص'); } };
+  const load = async () => { await Promise.all([loadStock(),loadOptions()]); };
+  useEffect(() => { if(!connected){inventoryRequestRef.current++;setSnapshot(null);return;} void loadStock(); }, [connected,eventsPage,eventsPageSize,eventsQuery,eventType]);
+  useEffect(() => { if(!connected){setVouchers([]);setDistributors([]);return;} void loadOptions(); }, [connected]);
+  useEffect(() => { const timer=window.setTimeout(()=>{setEventsPage(0);setEventsQuery(eventsSearch.trim());},250);return()=>window.clearTimeout(timer); }, [eventsSearch]);
   const candidates = vouchers.filter((v) => v.state === 'active' && (action === 'allocate' ? v.owner === 'المشغّل' : action === 'transfer' ? v.owner !== 'المشغّل' : v.owner !== 'المشغّل'));
   const toggle = (id: string) => setSelected((prev) => prev.includes(id) ? prev.filter((v) => v !== id) : [...prev,id]);
   const submit = async () => { if (!selected.length) return; setBusy(true); setError(''); setSuccess(''); try { const result=await api.inventoryMovement({action,voucher_ids:selected,distributor_id:action==='return' ? undefined : target}); setSuccess(`تم تسجيل ${result.count} حركة مخزون.`); setSelected([]); await load(); } catch(err) { setError(err instanceof Error ? err.message : 'تعذرت حركة المخزون'); } finally { setBusy(false); } };
@@ -113,7 +120,19 @@ export function InventoryPage({ connected }: Props) {
     <section className="surface allocation-panel"><div className="surface-heading"><div><h3>تخصيص حركة</h3><p>اختر قسائم نشطة وسجّل التحويل في دفتر غير قابل للمحو.</p></div><span className="heading-icon"><Boxes size={17} /></span></div><div className="allocation-controls"><label className="field"><span>نوع الحركة</span><select value={action} onChange={(e) => {setAction(e.target.value as typeof action);setSelected([]);}}><option value="allocate">تخصيص من المخزون المركزي</option><option value="transfer">تحويل بين موزعين</option><option value="return">إرجاع للمخزون المركزي</option></select></label>{action !== 'return' && <label className="field"><span>الموزع المستهدف</span><select value={target} onChange={(e) => setTarget(e.target.value)}><option value="">اختر موزعاً</option>{distributors.filter((d) => d.active).map((d) => <option value={d.id} key={d.id}>{d.name}</option>)}</select></label>}<button className="button button-primary" disabled={busy || !selected.length || (action !== 'return' && !target)} onClick={() => void submit()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Boxes size={15} />} تنفيذ الحركة ({selected.length})</button></div>
       <div className="allocation-list">{candidates.length ? candidates.slice(0,80).map((v) => <label className="allocation-voucher" key={v.id}><input type="checkbox" checked={selected.includes(v.id)} onChange={() => toggle(v.id)} /><span className="voucher-user-name">{v.username}</span><span className="profile-badge">{v.package}</span><small>{v.owner}</small></label>) : <div className="muted-empty">لا توجد قسائم مناسبة لهذه الحركة. أنشئ دفعة أولاً أو غيّر نوع الحركة.</div>}</div>
     </section>
-    <section className="surface table-panel inventory-events"><div className="table-heading"><div><h3>سجل الحركات الأخير</h3><p>كل حركة تسجل كسطر مستقل؛ لا يعاد كتابة التاريخ السابق.</p></div><span className="profile-count">{snapshot?.events.length ?? 0} حركة</span></div>{snapshot?.events.length ? <><div className="table-scroll"><table><thead><tr><th>الوقت</th><th>القسيمة</th><th>الحركة</th><th>من</th><th>إلى</th></tr></thead><tbody>{snapshot.events.slice(eventsPage*eventsPageSize,(eventsPage+1)*eventsPageSize).map((e) => <tr key={e.id}><td>{new Date(e.created_at).toLocaleString('ar')}</td><td><strong>{e.username}</strong></td><td>{movementLabel(e.type)}</td><td>{e.from}</td><td>{e.to}</td></tr>)}</tbody></table></div><TablePagination page={eventsPage} pageSize={eventsPageSize} total={snapshot.events.length} onPage={setEventsPage} onPageSize={(size)=>{setEventsPageSize(size);setEventsPage(0);}} label="حركة" /></> : <div className="table-empty">لا توجد حركات مخزون مسجلة بعد.</div>}</section>
+    <section className="surface table-panel inventory-events">
+      <div className="table-heading">
+        <div><h3>سجل حركات المخزون</h3><p>كل حركة تسجل كسطر مستقل؛ يمكن البحث والتصفية دون تعديل التاريخ السابق.</p></div>
+        <div className="inventory-event-filters">
+          <label className="search-box"><Search size={15}/><input value={eventsSearch} onChange={(event)=>setEventsSearch(event.target.value)} placeholder="بحث بالقسيمة أو الملاحظة أو الموزع" /></label>
+          <select aria-label="تصفية حسب نوع الحركة" value={eventType} onChange={(event)=>{setEventType(event.target.value);setEventsPage(0);}}>
+            <option value="all">كل الحركات</option><option value="issue">إصدار</option><option value="allocate">تخصيص</option><option value="transfer">تحويل</option><option value="return">إرجاع</option><option value="adjustment">تسوية</option>
+          </select>
+          <span className="profile-count">{snapshot?.events_total??0} حركة</span>
+        </div>
+      </div>
+      {snapshot?.events.length ? <><div className="table-scroll"><table><thead><tr><th>الوقت</th><th>القسيمة</th><th>الحركة</th><th>من</th><th>إلى</th><th>ملاحظة</th></tr></thead><tbody>{snapshot.events.map((event)=> <tr key={event.id}><td>{new Date(event.created_at).toLocaleString('ar')}</td><td><strong>{event.username}</strong></td><td>{movementLabel(event.type)}</td><td>{event.from}</td><td>{event.to}</td><td>{event.note||'—'}</td></tr>)}</tbody></table></div><TablePagination page={eventsPage} pageSize={eventsPageSize} total={snapshot.events_total} onPage={setEventsPage} onPageSize={(size)=>{setEventsPageSize(size);setEventsPage(0);}} label="حركة" /></> : <div className="table-empty">{eventsQuery||eventType!=='all'?'لا توجد حركات تطابق البحث أو التصفية.':'لا توجد حركات مخزون مسجلة بعد.'}</div>}
+    </section>
   </>;
 }
 

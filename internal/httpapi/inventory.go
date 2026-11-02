@@ -23,14 +23,24 @@ func (s *Server) inventory(w http.ResponseWriter, r *http.Request) {
 	balances:=make([]balance,0); total:=0
 	for rows.Next(){var b balance;if err:=rows.Scan(&b.OwnerID,&b.OwnerName,&b.Count);err!=nil{rows.Close();writeError(w,http.StatusInternalServerError,"تعذر قراءة رصيد المخزون");return};balances=append(balances,b);total+=b.Count}
 	if err:=rows.Err();err!=nil{rows.Close();writeError(w,http.StatusInternalServerError,"تعذر قراءة أرصدة المخزون");return};rows.Close()
+	eventLimit:=queryInt(r,"event_limit",20,1,100)
+	eventOffset:=queryInt(r,"event_offset",0,0,1000000)
+	term:=strings.TrimSpace(r.URL.Query().Get("event_q"))
+	if len([]rune(term))>120{term=string([]rune(term)[:120])}
+	eventType:=strings.TrimSpace(r.URL.Query().Get("event_type"))
+	switch eventType{case "","all":eventType="";case "issue","allocate","transfer","return","adjustment":default:writeError(w,http.StatusBadRequest,"نوع حركة المخزون غير صالح");return}
+	filter:=`(?='' OR se.event_type=?) AND (?='' OR v.username LIKE '%'||?||'%' OR se.note LIKE '%'||?||'%' OR COALESCE(src.name,'المشغّل') LIKE '%'||?||'%' OR COALESCE(dst.name,'المخزون المركزي') LIKE '%'||?||'%')`
+	filterArgs:=[]any{eventType,eventType,term,term,term,term,term}
+	var eventTotal int
+	if err:=s.db.QueryRowContext(r.Context(),`SELECT COUNT(*) FROM stock_events se JOIN vouchers v ON v.id=se.voucher_id LEFT JOIN distributors src ON src.id=se.from_distributor_id LEFT JOIN distributors dst ON dst.id=se.distributor_id WHERE `+filter,filterArgs...).Scan(&eventTotal);err!=nil{writeError(w,http.StatusInternalServerError,"تعذر عدّ حركات المخزون");return}
 	events,err:=s.db.QueryContext(r.Context(),`SELECT se.id,se.event_type,se.voucher_id,v.username,COALESCE(src.name,'المشغّل'),COALESCE(dst.name,'المخزون المركزي'),se.note,se.created_at
 		FROM stock_events se JOIN vouchers v ON v.id=se.voucher_id
 		LEFT JOIN distributors src ON src.id=se.from_distributor_id LEFT JOIN distributors dst ON dst.id=se.distributor_id
-		ORDER BY se.created_at DESC,se.rowid DESC LIMIT 100`)
+		WHERE `+filter+` ORDER BY se.created_at DESC,se.rowid DESC LIMIT ? OFFSET ?`,append(filterArgs,eventLimit,eventOffset)...)
 	if err!=nil{writeError(w,http.StatusInternalServerError,"تعذر قراءة حركات المخزون");return};defer events.Close()
 	type event struct { ID string `json:"id"`; Type string `json:"type"`; VoucherID string `json:"voucher_id"`; Username string `json:"username"`; From string `json:"from"`; To string `json:"to"`; Note string `json:"note"`; CreatedAt string `json:"created_at"` }
 	items:=make([]event,0);for events.Next(){var e event;if err:=events.Scan(&e.ID,&e.Type,&e.VoucherID,&e.Username,&e.From,&e.To,&e.Note,&e.CreatedAt);err!=nil{writeError(w,http.StatusInternalServerError,"تعذر قراءة حركة المخزون");return};items=append(items,e)};if err:=events.Err();err!=nil{writeError(w,http.StatusInternalServerError,"تعذر قراءة حركات المخزون");return}
-	writeJSON(w,http.StatusOK,map[string]any{"total":total,"balances":balances,"events":items})
+	writeJSON(w,http.StatusOK,map[string]any{"total":total,"balances":balances,"events":items,"events_total":eventTotal,"events_limit":eventLimit,"events_offset":eventOffset})
 }
 
 func (s *Server) inventoryMovement(w http.ResponseWriter, r *http.Request) {

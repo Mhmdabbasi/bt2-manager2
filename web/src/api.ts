@@ -59,7 +59,7 @@ export type ServicePackage = {
 export type Distributor = { id: string; name: string; contact: string; notes: string; active: boolean; all_packages_enabled: boolean; created_at: string };
 export type DistributorPackagePolicy = { distributor_id: string; all_packages_enabled: boolean; packages: { package_id: string; name: string; service_type: 'hotspot'|'user_manager'; package_enabled: boolean; allowed: boolean; username_prefix_override: string }[] };
 export type ManagedVoucher = { id: string; batch_id: string; username: string; state: string; failure_reason: string; created_at: string; package: string; owner: string };
-export type InventoryData = { total: number; balances: { owner_id: string; owner_name: string; count: number }[]; events: { id: string; type: string; voucher_id: string; username: string; from: string; to: string; note: string; created_at: string }[] };
+export type InventoryData = { total: number; balances: { owner_id: string; owner_name: string; count: number }[]; events: { id: string; type: string; voucher_id: string; username: string; from: string; to: string; note: string; created_at: string }[]; events_total: number; events_limit: number; events_offset: number };
 export type BatchArchiveRow = { id: string; name: string; outlet_name: string; state: string; requested_count: number; succeeded_count: number; failed_count: number; created_at: string; completed_at: string; printed_at: string; print_count: number; package: string; service_type: string; profile_name: string; active_count: number; disabled_count: number };
 export type ArchivedBatch = BatchArchiveRow & { validity_label: string; template_version_id: string; generation_options: Record<string, unknown> };
 export type ArchivedVoucher = { id: string; username: string; password: string; state: string; error?: string };
@@ -141,7 +141,7 @@ export const api = {
   updateDistributor: (id: string, body: Pick<Distributor, 'name'|'contact'|'notes'|'active'>) => request<Distributor>(`/api/distributors/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
   distributorPackagePolicy: (id: string) => request<DistributorPackagePolicy>(`/api/distributors/${encodeURIComponent(id)}/packages`),
   saveDistributorPackagePolicy: (id: string, body: Pick<DistributorPackagePolicy, 'all_packages_enabled'|'packages'>) => request<DistributorPackagePolicy>(`/api/distributors/${encodeURIComponent(id)}/packages`, { method: 'PUT', body: JSON.stringify(body) }),
-  inventory: () => request<InventoryData>('/api/inventory'),
+  inventory: (offset = 0, limit = 20, query = '', eventType = 'all') => request<InventoryData>(`/api/inventory?event_offset=${offset}&event_limit=${limit}&event_q=${encodeURIComponent(query)}&event_type=${encodeURIComponent(eventType)}`),
   userManager: () => request<UserManagerSnapshot>('/api/usermanager'),
   userManagerUsers: () => request<UserManagerDirectory>('/api/usermanager/users'),
   userManagerSessions: () => request<UserManagerSessionSnapshot>('/api/usermanager/sessions'),
