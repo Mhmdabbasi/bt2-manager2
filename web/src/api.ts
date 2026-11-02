@@ -132,6 +132,7 @@ export const api = {
   profiles: () => request<HotspotProfile[]>('/api/hotspot/profiles'),
   hotspotServers: () => request<string[]>('/api/hotspot/servers'),
   users: () => request<HotspotUser[]>('/api/hotspot/users'),
+  hotspotUsersPage: (offset = 0, limit = 20, query = '') => request<{ items: HotspotUser[]; total: number; limit: number; offset: number }>(`/api/hotspot/users/page?offset=${offset}&limit=${limit}&q=${encodeURIComponent(query)}`),
   packages: () => request<ServicePackage[]>('/api/packages'),
   createPackage: (body: Omit<ServicePackage, 'id' | 'enabled'>) => request<ServicePackage>('/api/packages', { method: 'POST', body: JSON.stringify(body) }),
   updatePackage: (id: string, body: Omit<ServicePackage, 'id' | 'enabled'>) => request<ServicePackage>(`/api/packages/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
